@@ -26,6 +26,73 @@ function formatDate(value, includeYear = false) {
 }
 
 // ============================================================
+// Chart tooltip
+// ============================================================
+
+const _tooltip = {
+    _pinned: false,
+    _el: null,
+
+    el() {
+        return this._el || (this._el = document.getElementById('chart-tooltip'));
+    },
+
+    hover(clientX, clientY, html) {
+        if (this._pinned) return;
+        const el = this.el();
+        el.innerHTML = html;
+        el.style.left = `${clientX + 14}px`;
+        el.style.top = `${clientY - 14}px`;
+        el.classList.add('visible');
+    },
+
+    move(clientX, clientY) {
+        if (this._pinned) return;
+        const el = this.el();
+        el.style.left = `${clientX + 14}px`;
+        el.style.top = `${clientY - 14}px`;
+    },
+
+    hide() {
+        if (this._pinned) return;
+        this.el().classList.remove('visible');
+    },
+
+    pin(clientX, clientY, html) {
+        const el = this.el();
+        el.innerHTML = html;
+        el.style.left = `${clientX + 14}px`;
+        el.style.top = `${clientY - 14}px`;
+        el.classList.add('visible', 'pinned');
+        this._pinned = true;
+        setTimeout(() => {
+            const handler = (e) => {
+                if (!el.contains(e.target)) {
+                    this.dismiss();
+                    document.removeEventListener('click', handler, { capture: true });
+                }
+            };
+            document.addEventListener('click', handler, { capture: true });
+        }, 0);
+    },
+
+    dismiss() {
+        this._pinned = false;
+        const el = this.el();
+        el.classList.remove('visible', 'pinned');
+    },
+
+    isPinned() { return this._pinned; },
+};
+
+function buildTooltipHtml(r) {
+    return `<div class="tt-date">${fmt.date(r.performance_date, true)}</div>` +
+           `<div class="tt-show">${escapeHtml(r.competition_name)}</div>` +
+           `<div class="tt-score">${fmt.score(r.total_score)}</div>` +
+           `<div class="tt-meta">${fmt.classCode(r.class_code)} · ${fmtStage(r.display_stage || r.event_stage)}</div>`;
+}
+
+// ============================================================
 // DB query helpers
 // ============================================================
 
@@ -931,7 +998,14 @@ function bindGlobalRoutes() {
         const jump = event.target.closest('[data-jump-target]');
         if (jump) {
             event.preventDefault();
-            highlightBySelector(jump.dataset.jumpTarget);
+            const jumpEl = document.querySelector(jump.dataset.jumpTarget);
+            if (jumpEl) {
+                if (jump.dataset.jumpScroll === 'start') {
+                    jumpEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    highlightElement(jumpEl);
+                }
+            }
             return;
         }
 
@@ -1843,6 +1917,7 @@ function renderEnsembleJumps() {
         btn.type = 'button';
         btn.className = 'jump-button';
         btn.dataset.jumpTarget = target;
+        btn.dataset.jumpScroll = 'start';
         btn.textContent = label;
         nav.appendChild(btn);
     });
@@ -1969,6 +2044,7 @@ function fmtStage(stage) {
 function renderTrendChart(db, canonicalId, track, seasons) {
     const container = document.getElementById('ens-chart');
     container.innerHTML = '';
+    _tooltip.dismiss();
 
     const shell = el('div', 'chart-shell');
     const plot = el('div', 'chart-plot');
@@ -2075,6 +2151,39 @@ function renderTrendChart(db, canonicalId, track, seasons) {
         .y(r => y(r.total_score))
         .defined(r => r.total_score != null);
 
+    let focusLocked = null;
+
+    const focusSeason = (targetSeason) => {
+        if (focusLocked !== null && focusLocked !== targetSeason) return;
+        g.selectAll('.season-group').style('opacity', 0.18);
+        g.select(`.sg-${targetSeason}`).raise().style('opacity', 1);
+    };
+
+    const blurSeason = () => {
+        if (focusLocked !== null) return;
+        g.selectAll('.season-group').style('opacity', 1);
+    };
+
+    const lockFocus = (targetSeason) => {
+        focusLocked = targetSeason;
+        g.selectAll('.season-group').style('opacity', 0.18);
+        g.select(`.sg-${targetSeason}`).raise().style('opacity', 1);
+    };
+
+    const clearFocusLock = () => {
+        focusLocked = null;
+        g.selectAll('.season-group').style('opacity', 1);
+    };
+
+    g.insert('rect', ':first-child')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('fill', 'transparent')
+        .on('click', () => {
+            clearFocusLock();
+            _tooltip.dismiss();
+        });
+
     sortedSeasons.forEach(season => {
         const sData = bySeason[season];
         if (!sData) return;
@@ -2090,6 +2199,25 @@ function renderTrendChart(db, canonicalId, track, seasons) {
             .attr('stroke', color)
             .attr('stroke-width', 2)
             .attr('d', line);
+
+        group.append('path')
+            .datum(sData)
+            .attr('fill', 'none')
+            .attr('stroke', 'transparent')
+            .attr('stroke-width', 10)
+            .attr('d', line)
+            .style('cursor', 'pointer')
+            .on('mouseover', () => focusSeason(season))
+            .on('mouseout', () => blurSeason())
+            .on('click', (event) => {
+                event.stopPropagation();
+                if (focusLocked === season) {
+                    clearFocusLock();
+                    _tooltip.dismiss();
+                } else {
+                    lockFocus(season);
+                }
+            });
 
         const visDots = group.selectAll(null)
             .data(filteredData)
@@ -2113,22 +2241,28 @@ function renderTrendChart(db, canonicalId, track, seasons) {
             .attr('fill', 'transparent')
             .style('cursor', 'pointer')
             .on('mouseover', function(event, r) {
-                g.selectAll('.season-group').style('opacity', 0.22);
-                group.raise().style('opacity', 1);
-                const i = group.selectAll('circle[fill="transparent"]').nodes().indexOf(this);
-                d3.select(visDots.nodes()[i])
+                focusSeason(season);
+                visDots.filter(d => d === r)
                     .transition().duration(120)
-                    .attr('r', 8)
-                    .attr('stroke-width', 2);
+                    .attr('r', 8).attr('stroke-width', 2);
+                _tooltip.hover(event.clientX, event.clientY, buildTooltipHtml(r));
             })
-            .on('mouseout', function() {
-                g.selectAll('.season-group').style('opacity', 1);
+            .on('mousemove', function(event) {
+                _tooltip.move(event.clientX, event.clientY);
+            })
+            .on('mouseout', function(event, r) {
+                blurSeason();
                 visDots.transition().duration(150).attr('r', 5).attr('stroke-width', 1.5);
+                _tooltip.hide();
             })
-            .append('title')
-            .text(r =>
-                `${fmt.date(r.performance_date, true)} — ${r.competition_name}\n${fmt.score(r.total_score)} · ${fmt.classCode(r.class_code)} · ${fmtStage(r.display_stage || r.event_stage)}`
-            );
+            .on('click', function(event, r) {
+                event.stopPropagation();
+                lockFocus(season);
+                visDots.filter(d => d === r)
+                    .transition().duration(120)
+                    .attr('r', 8).attr('stroke-width', 2);
+                _tooltip.pin(event.clientX, event.clientY, buildTooltipHtml(r));
+            });
     });
 
     menu.querySelectorAll('.chart-season-button').forEach(btn => {
@@ -2255,18 +2389,12 @@ function renderSeasonDetails(db, canonicalId, track, seasons) {
 
         if (hasBoth) {
             block.appendChild(el('div', 'block-heading', 'Regular Season / Prelims'));
-            const regTbl = buildSubTable(regularPerfs);
-            block.appendChild(wrapTable(regTbl));
-            applyStickyColumns(regTbl, 3);
+            block.appendChild(wrapTable(buildSubTable(regularPerfs)));
 
             block.appendChild(el('div', 'block-heading', 'Finals'));
-            const finTbl = buildSubTable(finalsPerfs);
-            block.appendChild(wrapTable(finTbl));
-            applyStickyColumns(finTbl, 3);
+            block.appendChild(wrapTable(buildSubTable(finalsPerfs)));
         } else {
-            const tbl = buildSubTable(perfs);
-            block.appendChild(wrapTable(tbl));
-            applyStickyColumns(tbl, 3);
+            block.appendChild(wrapTable(buildSubTable(perfs)));
         }
 
         container.appendChild(block);
