@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scpadb"
+version = "0.1.0"
+description = "SCPA scoring database and EDA project"
+requires-python = ">=3.12"
+dependencies = [
+    "cs-parse @ git+https://github.com/aditgautam/cs-parse.git",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pandas>=2.0",
+    "jupyter>=1.0",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "scipy>=1.13",
+    "ruff>=0.4",
+]

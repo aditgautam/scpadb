@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>scpadb — SCPA Scoring Database</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+    <header>
+        <h1>SCPA Scoring Database</h1>
+        <p class="subtitle">Historical competitive percussion results from CompetitionSuite</p>
+    </header>
+
+    <main>
+        <section id="filters">
+            <div class="filter-group">
+                <label for="ensemble-search">Ensemble</label>
+                <input type="text" id="ensemble-search" placeholder="Search ensembles…" autocomplete="off">
+            </div>
+            <div class="filter-group">
+                <label for="class-select">Class</label>
+                <select id="class-select">
+                    <option value="">All Classes</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="year-select">Year</label>
+                <select id="year-select">
+                    <option value="">All Years</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="caption-select">Caption</label>
+                <select id="caption-select">
+                    <option value="">All Captions</option>
+                </select>
+            </div>
+        </section>
+
+        <section id="status">
+            <p id="status-msg">Loading database…</p>
+        </section>
+
+        <section id="results" hidden>
+            <h2>Performances <span id="result-count"></span></h2>
+            <div class="table-wrap">
+                <table id="results-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Ensemble</th>
+                            <th>Class</th>
+                            <th>Competition</th>
+                            <th>Total</th>
+                            <th>Rank</th>
+                            <th>Place</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-body"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="charts" hidden>
+            <div id="score-trajectory">
+                <h2>Score Trajectory</h2>
+                <svg id="trajectory-chart"></svg>
+            </div>
+        </section>
+    </main>
+
+    <script src="js/sql-wasm.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

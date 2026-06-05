@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.ipynb_checkpoints/
+.DS_Store
+.claude/
+docs/
+PRD.md
+data/full_sample_data.json
+
+# scores.db is intentionally NOT gitignored
