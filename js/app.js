@@ -3,12 +3,18 @@
 // ============================================================
 
 const fmt = {
-    score: v => (v == null ? '--' : Number(v).toFixed(3)),
+    score: v => (v == null ? '--' : formatScore(v)),
     int:   v => (v == null ? '--' : String(v)),
     str:   v => (v == null || v === '' ? '--' : String(v)),
     date:  (v, includeYear = false) => formatDate(v, includeYear),
     classCode: v => (v == null ? '--' : String(v).toUpperCase()),
 };
+
+function formatScore(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return '--';
+    return n.toFixed(3).replace(/\.?0+$/, '');
+}
 
 function formatDate(value, includeYear = false) {
     if (value == null || value === '') return '--';
@@ -131,6 +137,14 @@ function getCanonicalEnsembles(db, search) {
          ORDER BY display_name
          LIMIT 20`,
         [term]
+    );
+}
+
+function getAllCanonicalEnsembles(db) {
+    return query(db,
+        `SELECT canonical_ensemble_id, display_name
+         FROM canonical_ensembles
+         ORDER BY display_name`
     );
 }
 
@@ -273,6 +287,146 @@ function getPromotedSeasonRows(db) {
     );
 }
 
+function getEnsembleStats(db, canonicalId, track) {
+    const filter = trackWhere(track, 'p');
+    const rows = query(db,
+        `WITH selected AS (
+            SELECT p.*
+            FROM v_frontend_ensemble_performances p
+            WHERE p.canonical_ensemble_id = ?
+              ${filter.sql}
+              AND p.total_score IS NOT NULL
+         ),
+         bounds AS (
+            SELECT MIN(season_year) AS earliest_year FROM events
+         ),
+         finals AS (
+            SELECT COUNT(DISTINCT season_year) AS finals_appearances
+            FROM selected
+            WHERE display_stage = 'championship_finals'
+         ),
+         high_score AS (
+            SELECT total_score, competition_name, performance_date, class_code
+            FROM selected
+            ORDER BY total_score DESC, performance_date DESC
+            LIMIT 1
+         )
+         SELECT
+            bounds.earliest_year,
+            finals.finals_appearances,
+            high_score.total_score AS highest_score,
+            high_score.competition_name AS highest_score_show,
+            high_score.performance_date AS highest_score_date,
+            high_score.class_code AS highest_score_class
+         FROM bounds
+         CROSS JOIN finals
+         LEFT JOIN high_score ON 1 = 1`,
+        [canonicalId, ...filter.params]
+    );
+    return rows[0] || null;
+}
+
+function getEnsembleSeasonStats(db, canonicalId, track) {
+    const filter = trackWhere(track, 'p');
+    return query(db,
+        `WITH selected AS (
+            SELECT p.*
+            FROM v_frontend_ensemble_performances p
+            WHERE p.canonical_ensemble_id = ?
+              ${filter.sql}
+              AND p.total_score IS NOT NULL
+         ),
+         first_rows AS (
+            SELECT *
+            FROM (
+                SELECT selected.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY season_year
+                        ORDER BY performance_date, season_week_calendar, performance_key
+                    ) AS rn
+                FROM selected
+            )
+            WHERE rn = 1
+         ),
+         last_rows AS (
+            SELECT *
+            FROM (
+                SELECT selected.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY season_year
+                        ORDER BY performance_date DESC, season_week_calendar DESC, performance_key DESC
+                    ) AS rn
+                FROM selected
+            )
+            WHERE rn = 1
+         )
+         SELECT
+            f.season_year,
+            f.total_score AS first_score,
+            f.season_week_calendar AS first_week,
+            f.performance_date AS first_date,
+            l.total_score AS last_score,
+            l.season_week_calendar AS last_week,
+            l.performance_date AS last_date,
+            l.total_score - f.total_score AS score_differential,
+            CASE
+                WHEN l.season_week_calendar = f.season_week_calendar THEN NULL
+                ELSE (l.total_score - f.total_score) * 1.0 /
+                     (l.season_week_calendar - f.season_week_calendar)
+            END AS mean_weekly_improvement
+         FROM first_rows f
+         JOIN last_rows l ON l.season_year = f.season_year
+         ORDER BY f.season_year DESC`,
+        [canonicalId, ...filter.params]
+    );
+}
+
+function getJudgeDirectory(db) {
+    return query(db,
+        `SELECT
+            jl.judge_abbrev,
+            jl.judge_full_name,
+            jl.judge_display_name,
+            CASE WHEN jl.judge_full_name IS NULL OR trim(jl.judge_full_name) = ''
+                THEN 'needs full name'
+                ELSE 'mapped'
+            END AS mapping_status,
+            COUNT(s.id) AS score_rows,
+            COUNT(DISTINCT s.performance_key) AS performance_count
+         FROM judge_lookup jl
+         LEFT JOIN scores s ON s.judge = jl.judge_abbrev
+         GROUP BY jl.judge_abbrev, jl.judge_full_name, jl.judge_display_name
+         ORDER BY jl.judge_abbrev`
+    );
+}
+
+function getSchemaObjects(db) {
+    return query(db,
+        `SELECT type, name
+         FROM sqlite_master
+         WHERE type IN ('table', 'view')
+           AND name NOT LIKE 'sqlite_%'
+         ORDER BY type, name`
+    );
+}
+
+function runReadOnlySql(db, sql, limit = 500) {
+    const text = sql.trim();
+    if (!/^(select|with)\b/i.test(text)) {
+        throw new Error('Only read-only SELECT or WITH queries are allowed.');
+    }
+    if (/\b(insert|update|delete|drop|alter|create|replace|pragma|attach|detach|vacuum|reindex)\b/i.test(text)) {
+        throw new Error('Mutation and database-control statements are not allowed.');
+    }
+    const result = db.exec(text)[0];
+    const rows = toRows(result);
+    return {
+        rows: rows.slice(0, limit),
+        totalRows: rows.length,
+        truncated: rows.length > limit,
+    };
+}
+
 function getSeasonEnsembleRawScores(db, canonicalId, track, season) {
     const filter = trackWhere(track);
     return query(db,
@@ -305,14 +459,114 @@ function buildTable(headers, rows) {
     const table = document.createElement('table');
 
     const thead = document.createElement('thead');
-    const hrow = document.createElement('tr');
-    headers.forEach(h => {
-        const th = document.createElement('th');
-        th.textContent = typeof h === 'object' ? h.label : h;
-        if (typeof h === 'object' && h.num) th.className = 'num';
-        hrow.appendChild(th);
-    });
-    thead.appendChild(hrow);
+    const hObj = h => typeof h === 'object' ? h : { label: h };
+    const hasJudgeGroups = headers.some(h => typeof h === 'object' && h.judgeGroup !== undefined);
+    const hasCaptionGroups = headers.some(h => typeof h === 'object' && h.captionGroup != null);
+
+    if (hasJudgeGroups) {
+        const row1 = document.createElement('tr');
+        const row2 = document.createElement('tr');
+        const row3 = document.createElement('tr');
+        table.classList.add('detail-table-3level');
+        let i = 0;
+        while (i < headers.length) {
+            const h = hObj(headers[i]);
+            if (!h.captionGroup) {
+                const th = document.createElement('th');
+                th.textContent = h.label;
+                th.rowSpan = 3;
+                if (h.num) th.className = 'num';
+                row1.appendChild(th);
+                i++;
+                continue;
+            }
+            const cg = h.captionGroup;
+            const cgStart = i;
+            while (i < headers.length && hObj(headers[i]).captionGroup === cg) i++;
+            const cgCols = headers.slice(cgStart, i).map(hObj);
+            const cgTh = document.createElement('th');
+            cgTh.textContent = fmtCaptionFull(cg);
+            cgTh.colSpan = cgCols.length;
+            cgTh.classList.add('header-caption-group');
+            row1.appendChild(cgTh);
+            let j = 0;
+            while (j < cgCols.length) {
+                const col = cgCols[j];
+                if (col.judgeGroup === null) {
+                    const th = document.createElement('th');
+                    th.textContent = col.label;
+                    th.rowSpan = 2;
+                    th.classList.add('header-caption-total');
+                    if (col.num) th.classList.add('num');
+                    row2.appendChild(th);
+                    j++;
+                } else {
+                    const jg = col.judgeGroup;
+                    const jgStart = j;
+                    while (j < cgCols.length && cgCols[j].judgeGroup === jg) j++;
+                    const jgCols = cgCols.slice(jgStart, j);
+                    const jTh = document.createElement('th');
+                    jTh.textContent = jgCols[0]?.judgeLabel || `J${jg}`;
+                    jTh.colSpan = jgCols.length;
+                    jTh.classList.add('header-judge-group');
+                    row2.appendChild(jTh);
+                    jgCols.forEach(c => {
+                        const th = document.createElement('th');
+                        th.textContent = c.label;
+                        if (c.num) th.className = 'num';
+                        if (c.role === 'judge_total') th.classList.add('header-judge-total-col');
+                        row3.appendChild(th);
+                    });
+                }
+            }
+        }
+        thead.appendChild(row1);
+        thead.appendChild(row2);
+        thead.appendChild(row3);
+    } else if (hasCaptionGroups) {
+        const groupRow = document.createElement('tr');
+        const subRow = document.createElement('tr');
+        let i = 0;
+        while (i < headers.length) {
+            const h = hObj(headers[i]);
+            if (!h.captionGroup) {
+                const th = document.createElement('th');
+                th.textContent = h.label;
+                th.rowSpan = 2;
+                if (h.num) th.className = 'num';
+                groupRow.appendChild(th);
+                i++;
+            } else {
+                const grp = h.captionGroup;
+                const start = i;
+                while (i < headers.length && hObj(headers[i]).captionGroup === grp) i++;
+                const groupTh = document.createElement('th');
+                groupTh.textContent = fmtCaptionFull(grp);
+                groupTh.colSpan = i - start;
+                groupTh.classList.add('caption-group-header');
+                groupRow.appendChild(groupTh);
+                for (let k = start; k < i; k++) {
+                    const sh = hObj(headers[k]);
+                    const th = document.createElement('th');
+                    th.textContent = sh.label;
+                    if (sh.num) th.className = 'num';
+                    subRow.appendChild(th);
+                }
+            }
+        }
+        thead.appendChild(groupRow);
+        thead.appendChild(subRow);
+    } else {
+        const hrow = document.createElement('tr');
+        headers.forEach(h => {
+            const ho = hObj(h);
+            const th = document.createElement('th');
+            th.textContent = ho.label;
+            if (ho.num) th.className = 'num';
+            hrow.appendChild(th);
+        });
+        thead.appendChild(hrow);
+    }
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
@@ -323,14 +577,15 @@ function buildTable(headers, rows) {
         if (!Array.isArray(row) && row.rowId) tr.id = row.rowId;
         cells.forEach((cell, i) => {
             const td = document.createElement('td');
-            const hdr = headers[i];
-            const isNum = typeof hdr === 'object' && hdr.num;
+            const hdr = hObj(headers[i]);
+            td.className = hdr.num ? 'num' : '';
+            if (hdr.role === 'judge_total') td.classList.add('col-judge-total');
+            else if (hdr.role === 'caption_total') td.classList.add('col-caption-total');
             if (cell && typeof cell === 'object' && 'html' in cell) {
                 td.innerHTML = cell.html;
             } else {
                 td.textContent = cell ?? '--';
             }
-            td.className = isNum ? 'num' : '';
             tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -339,9 +594,52 @@ function buildTable(headers, rows) {
     return table;
 }
 
+function applyTableZoom(wrap) {
+    let scale = 1;
+    let lastDist = null;
+    let lastTap = 0;
+
+    wrap.addEventListener('touchstart', e => {
+        if (e.touches.length === 2) {
+            lastDist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
+        } else if (e.touches.length === 1) {
+            const now = Date.now();
+            if (now - lastTap < 300) {
+                scale = 1;
+                wrap.style.transform = '';
+                wrap.classList.remove('table-zoomed');
+                lastTap = 0;
+            } else {
+                lastTap = now;
+            }
+        }
+    }, { passive: true });
+
+    wrap.addEventListener('touchmove', e => {
+        if (e.touches.length !== 2 || lastDist === null) return;
+        const newDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+        );
+        scale = Math.min(3, Math.max(1, scale * (newDist / lastDist)));
+        lastDist = newDist;
+        wrap.style.transform = scale > 1 ? `scale(${scale.toFixed(3)})` : '';
+        wrap.classList.toggle('table-zoomed', scale > 1);
+        e.preventDefault();
+    }, { passive: false });
+
+    wrap.addEventListener('touchend', () => {
+        lastDist = null;
+    }, { passive: true });
+}
+
 function wrapTable(table) {
     const w = makeTableWrap();
     w.appendChild(table);
+    applyTableZoom(w);
     return w;
 }
 
@@ -349,6 +647,8 @@ const _showSortState = {};
 
 function buildSortableTable(headers, rows, tableKey) {
     const table = document.createElement('table');
+    table.classList.add('show-table');
+    if (headers.length > 8) table.classList.add('compact-score-table');
     const sort = _showSortState[tableKey] || { key: null, direction: null };
     let renderedRows = rows.slice();
 
@@ -366,9 +666,7 @@ function buildSortableTable(headers, rows, tableKey) {
         });
     }
 
-    const thead = document.createElement('thead');
-    const hrow = document.createElement('tr');
-    headers.forEach(h => {
+    const makeSortTh = (h) => {
         const th = document.createElement('th');
         th.textContent = h.label;
         if (h.num) th.className = 'num';
@@ -379,19 +677,162 @@ function buildSortableTable(headers, rows, tableKey) {
             }
             th.addEventListener('click', () => {
                 const current = _showSortState[tableKey] || { key: null, direction: null };
-                let next = { key: h.key, direction: 'asc' };
-                if (current.key === h.key && current.direction === 'asc') {
-                    next = { key: h.key, direction: 'desc' };
-                } else if (current.key === h.key && current.direction === 'desc') {
+                let next = { key: h.key, direction: 'desc' };
+                if (current.key === h.key && current.direction === 'desc') {
+                    next = { key: h.key, direction: 'asc' };
+                } else if (current.key === h.key && current.direction === 'asc') {
                     next = { key: null, direction: null };
                 }
                 _showSortState[tableKey] = next;
                 renderShowRecords(_db);
             });
         }
-        hrow.appendChild(th);
-    });
-    thead.appendChild(hrow);
+        return th;
+    };
+
+    const thead = document.createElement('thead');
+    const hasJudgeGroups = headers.some(h => h.judgeGroup !== undefined);
+    const hasCaptionGroups = headers.some(h => h.captionGroup != null);
+
+    if (hasJudgeGroups) {
+        // 3-level header: caption group → judge group → score type
+        const row1 = document.createElement('tr');
+        const row2 = document.createElement('tr');
+        const row3 = document.createElement('tr');
+        table.classList.add('detail-table-3level');
+
+        let i = 0;
+        while (i < headers.length) {
+            const h = headers[i];
+            if (!h.captionGroup) {
+                const th = makeSortTh(h);
+                th.rowSpan = 3;
+                row1.appendChild(th);
+                i++;
+                continue;
+            }
+            // Collect this caption group's columns
+            const cg = h.captionGroup;
+            const cgStart = i;
+            while (i < headers.length && headers[i].captionGroup === cg) i++;
+            const cgCols = headers.slice(cgStart, i);
+
+            const cgTh = document.createElement('th');
+            cgTh.textContent = fmtCaptionFull(cg);
+            cgTh.colSpan = cgCols.length;
+            cgTh.classList.add('header-caption-group');
+            row1.appendChild(cgTh);
+
+            let j = 0;
+            while (j < cgCols.length) {
+                const col = cgCols[j];
+                if (col.judgeGroup === null) {
+                    // Caption total: rowspan=2, placed in row2
+                    const th = makeSortTh(col);
+                    th.rowSpan = 2;
+                    th.classList.add('header-caption-total');
+                    row2.appendChild(th);
+                    j++;
+                } else {
+                    const jg = col.judgeGroup;
+                    const jgStart = j;
+                    while (j < cgCols.length && cgCols[j].judgeGroup === jg) j++;
+                    const jgCols = cgCols.slice(jgStart, j);
+                    const jTh = document.createElement('th');
+                    jTh.textContent = jgCols[0]?.judgeLabel || `J${jg}`;
+                    jTh.colSpan = jgCols.length;
+                    jTh.classList.add('header-judge-group');
+                    row2.appendChild(jTh);
+                    jgCols.forEach(c => {
+                        const th = makeSortTh(c);
+                        if (c.role === 'judge_total') th.classList.add('header-judge-total-col');
+                        row3.appendChild(th);
+                    });
+                }
+            }
+        }
+        thead.appendChild(row1);
+        thead.appendChild(row2);
+        thead.appendChild(row3);
+
+    } else if (hasCaptionGroups) {
+        const captionHeaders = headers.filter(h => h.captionGroup);
+        const hasJudgeNames = captionHeaders.some(h => h.judgeLabel != null);
+
+        if (hasJudgeNames) {
+            // 3-level: caption group → judge name → score type
+            const groupRow = document.createElement('tr');
+            const judgeRow = document.createElement('tr');
+            const subRow = document.createElement('tr');
+            table.classList.add('detail-table-3level');
+            let i = 0;
+            while (i < headers.length) {
+                const h = headers[i];
+                if (!h.captionGroup) {
+                    const th = makeSortTh(h);
+                    th.rowSpan = 3;
+                    groupRow.appendChild(th);
+                    i++;
+                } else {
+                    const grp = h.captionGroup;
+                    const start = i;
+                    while (i < headers.length && headers[i].captionGroup === grp) i++;
+                    const cols = headers.slice(start, i);
+
+                    const groupTh = document.createElement('th');
+                    groupTh.textContent = fmtCaptionFull(grp);
+                    groupTh.colSpan = cols.length;
+                    groupTh.classList.add('header-caption-group');
+                    groupRow.appendChild(groupTh);
+
+                    const judgeTh = document.createElement('th');
+                    judgeTh.colSpan = cols.length;
+                    judgeTh.classList.add('header-judge-group');
+                    if (grp !== 'timing_penalties') {
+                        judgeTh.textContent = cols.find(c => c.judgeLabel)?.judgeLabel || '';
+                    }
+                    judgeRow.appendChild(judgeTh);
+
+                    cols.forEach(c => subRow.appendChild(makeSortTh(c)));
+                }
+            }
+            thead.appendChild(groupRow);
+            thead.appendChild(judgeRow);
+            thead.appendChild(subRow);
+        } else {
+            // 2-level: caption group → score type
+            const groupRow = document.createElement('tr');
+            const subRow = document.createElement('tr');
+            let i = 0;
+            while (i < headers.length) {
+                const h = headers[i];
+                if (!h.captionGroup) {
+                    const th = makeSortTh(h);
+                    th.rowSpan = 2;
+                    groupRow.appendChild(th);
+                    i++;
+                } else {
+                    const grp = h.captionGroup;
+                    const start = i;
+                    while (i < headers.length && headers[i].captionGroup === grp) i++;
+                    const groupTh = document.createElement('th');
+                    groupTh.textContent = fmtCaptionFull(grp);
+                    groupTh.colSpan = i - start;
+                    groupTh.classList.add('caption-group-header');
+                    groupRow.appendChild(groupTh);
+                    for (let k = start; k < i; k++) {
+                        subRow.appendChild(makeSortTh(headers[k]));
+                    }
+                }
+            }
+            thead.appendChild(groupRow);
+            thead.appendChild(subRow);
+        }
+    } else {
+        const hrow = document.createElement('tr');
+        headers.forEach(h => hrow.appendChild(makeSortTh(h)));
+        thead.appendChild(hrow);
+    }
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
@@ -401,7 +842,10 @@ function buildSortableTable(headers, rows, tableKey) {
         if (row.rowId) tr.id = row.rowId;
         row.cells.forEach((cell, i) => {
             const td = document.createElement('td');
-            if (headers[i].num) td.className = 'num';
+            const hdr = headers[i];
+            td.className = hdr.num ? 'num' : '';
+            if (hdr.role === 'judge_total') td.classList.add('col-judge-total');
+            else if (hdr.role === 'caption_total') td.classList.add('col-caption-total');
             if (cell && typeof cell === 'object' && 'html' in cell) {
                 td.innerHTML = cell.html;
             } else {
@@ -422,6 +866,8 @@ function buildSortableTable(headers, rows, tableKey) {
 let _db = null;
 let _activeTab = 'leaderboard';
 let _pendingHighlight = null;
+let _leaderboardSeason = null;
+let _showRecordsSeason = null;
 
 function switchTab(tabId) {
     _activeTab = tabId;
@@ -454,14 +900,14 @@ function setSelectValue(selectId, value) {
 
 function routeToLeaderboard(season, classCode = null) {
     switchTab('leaderboard');
-    setSelectValue('lb-season', season);
+    _leaderboardSeason = Number(season);
     renderLeaderboard(_db);
     if (classCode) highlightBySelector(`#leaderboard-${classCode}`);
 }
 
 function routeToShowRecords(season, date, performanceKey = null) {
     switchTab('show-records');
-    setSelectValue('sr-season', season);
+    _showRecordsSeason = Number(season);
     populateShowDates(_db);
     setSelectValue('sr-date', date);
     document.getElementById('sr-detail').checked = Boolean(performanceKey);
@@ -477,6 +923,7 @@ function routeToEnsemble(canonicalId, displayName, season = null, classCode = nu
         _ensState.selectedSeasons = new Set([Number(season)]);
         renderEnsembleView(_db);
     }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function bindGlobalRoutes() {
@@ -531,34 +978,27 @@ function orderedClassCodes(classCodes) {
 }
 
 function initLeaderboard(db) {
-    const sel = document.getElementById('lb-season');
     const buttons = document.getElementById('lb-season-buttons');
     const seasons = getSeasons(db);
-    sel.innerHTML = '';
     buttons.innerHTML = '';
+    _leaderboardSeason = seasons[0] ?? null;
     seasons.forEach(y => {
-        const opt = document.createElement('option');
-        opt.value = y;
-        opt.textContent = y;
-        sel.appendChild(opt);
-
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'season-button';
         btn.dataset.season = y;
         btn.textContent = y;
         btn.addEventListener('click', () => {
-            sel.value = y;
+            _leaderboardSeason = Number(y);
             renderLeaderboard(db);
         });
         buttons.appendChild(btn);
     });
-    sel.addEventListener('change', () => renderLeaderboard(db));
     renderLeaderboard(db);
 }
 
 function renderLeaderboard(db) {
-    const season = Number(document.getElementById('lb-season').value);
+    const season = Number(_leaderboardSeason);
     const rows = getSeasonLeaderboard(db, season);
     const container = document.getElementById('lb-content');
     container.innerHTML = '';
@@ -718,21 +1158,27 @@ function cssSafe(value) {
 // ============================================================
 
 function initShowRecords(db) {
-    const seasonSel = document.getElementById('sr-season');
     const dateSel = document.getElementById('sr-date');
     const combineChk = document.getElementById('sr-combine');
     const detailChk = document.getElementById('sr-detail');
+    const buttons = document.getElementById('sr-season-buttons');
 
     const seasons = getSeasons(db);
-    seasonSel.innerHTML = '';
+    buttons.innerHTML = '';
+    _showRecordsSeason = seasons[0] ?? null;
     seasons.forEach(y => {
-        const opt = document.createElement('option');
-        opt.value = y;
-        opt.textContent = y;
-        seasonSel.appendChild(opt);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'season-button';
+        btn.dataset.season = y;
+        btn.textContent = y;
+        btn.addEventListener('click', () => {
+            _showRecordsSeason = Number(y);
+            populateShowDates(db);
+        });
+        buttons.appendChild(btn);
     });
 
-    seasonSel.addEventListener('change', () => populateShowDates(db));
     dateSel.addEventListener('change', () => renderShowRecords(db));
     combineChk.addEventListener('change', () => renderShowRecords(db));
     detailChk.addEventListener('change', () => renderShowRecords(db));
@@ -740,11 +1186,13 @@ function initShowRecords(db) {
 }
 
 function populateShowDates(db) {
-    const seasonSel = document.getElementById('sr-season');
     const dateSel = document.getElementById('sr-date');
-    const season = Number(seasonSel.value);
+    const season = Number(_showRecordsSeason);
     const selected = dateSel.value;
     const days = getShowDays(db, season);
+    document.querySelectorAll('#sr-season-buttons .season-button').forEach(btn => {
+        btn.classList.toggle('active', Number(btn.dataset.season) === season);
+    });
     dateSel.innerHTML = '';
     if (!days.length) {
         dateSel.innerHTML = '<option value="">No shows found</option>';
@@ -763,7 +1211,7 @@ function populateShowDates(db) {
 }
 
 function renderShowRecords(db) {
-    const season = Number(document.getElementById('sr-season').value);
+    const season = Number(_showRecordsSeason);
     const date = document.getElementById('sr-date').value;
     const combine = document.getElementById('sr-combine').checked;
     const detailed = document.getElementById('sr-detail').checked;
@@ -817,16 +1265,14 @@ function renderShowRecords(db) {
 
         if (combine && hasMultipleRounds) {
             const allPerfs = rounds.flatMap(r => byRound[r]);
-            const columns = getColumnsForPerfs(allPerfs, scoreModel);
-            section.appendChild(buildShowTable(allPerfs, scoreModel, columns, false, `${season}:${date}:${cls}:combined`));
+            appendShowTables(section, allPerfs, scoreModel, detailed, false, `${season}:${date}:${cls}:combined`);
         } else {
             rounds.forEach(round => {
                 if (hasMultipleRounds) {
                     const label = round === '__none__' ? 'Block' : `Block ${round}`;
                     section.appendChild(el('div', 'block-heading', label));
                 }
-                const columns = getColumnsForPerfs(byRound[round], scoreModel);
-                section.appendChild(buildShowTable(byRound[round], scoreModel, columns, true, `${season}:${date}:${cls}:${round}`));
+                appendShowTables(section, byRound[round], scoreModel, detailed, true, `${season}:${date}:${cls}:${round}`);
             });
         }
 
@@ -834,8 +1280,48 @@ function renderShowRecords(db) {
     });
 }
 
+function appendShowTables(section, perfs, scoreModel, detailed, showSubtotals, tableKey) {
+    const groups = detailed
+        ? groupPerfsByPanelStructure(perfs, scoreModel)
+        : [{ label: '', perfs }];
+    groups.forEach((group, index) => {
+        if (groups.length > 1) {
+            section.appendChild(el('div', 'block-heading', group.label || `Panel ${index + 1}`));
+        }
+        const columns = getColumnsForPerfs(group.perfs, scoreModel);
+        const wrapped = buildShowTable(group.perfs, scoreModel, columns, showSubtotals, `${tableKey}:${index}`);
+        section.appendChild(wrapped);
+        const tbl = wrapped.querySelector('table');
+        if (tbl) applyStickyColumns(tbl, 2);
+    });
+}
+
+function groupPerfsByPanelStructure(perfs, scoreModel) {
+    const groups = new Map();
+    perfs.forEach(perf => {
+        const keys = Object.keys(scoreModel.scores[perf.performance_key] || {})
+            .filter(key => !key.startsWith('cap:'))
+            .sort();
+        const signature = `${perf.display_stage || perf.event_stage || 'stage'}|${keys.join('|') || 'caption-only'}`;
+        if (!groups.has(signature)) {
+            const panelCount = Math.max(1, ...keys.map(key => {
+                const parts = key.split(':');
+                return Number(parts[3]) || 1;
+            }));
+            const stage = fmtStage(perf.display_stage || perf.event_stage);
+            groups.set(signature, {
+                label: `${stage} ${panelCount > 1 ? 'double panel' : 'single panel'}`,
+                perfs: [],
+            });
+        }
+        groups.get(signature).perfs.push(perf);
+    });
+    return [...groups.values()];
+}
+
 function buildCaptionScoreModel(captionRows, captionMap) {
     const columns = [...new Set(captionRows.map(r => r.caption))]
+        .filter(c => c !== 'total')
         .sort()
         .map(caption => ({
             key: `cap:${caption}`,
@@ -860,16 +1346,14 @@ function buildDetailedScoreModel(scoreRows, captionMap, hideJudgeSlots) {
         let key = null;
         let label = null;
         if (row.role === 'raw_score') {
-            const slot = hideJudgeSlots || row.judge_slot == null ? '' : ` J${row.judge_slot}`;
             key = `raw:${row.caption}:${row.subcaption}:${row.judge_slot ?? ''}`;
-            label = `${fmtCaption(row.subcaption)}${slot}`;
+            label = fmtCaption(row.subcaption);
         } else if (row.role === 'judge_total' && row.subcaption === 'total') {
-            const slot = hideJudgeSlots || row.judge_slot == null ? '' : ` J${row.judge_slot}`;
             key = `judge:${row.caption}:${row.judge_slot ?? ''}`;
-            label = `${fmtCaption(row.caption)} Total${slot}`;
+            label = 'Tot';
         } else if (row.role === 'caption_total') {
             key = `cap:${row.caption}`;
-            label = fmtCaption(row.caption);
+            label = 'Tot';
         }
         if (!key) return;
         scores[row.performance_key][key] = row.score;
@@ -880,6 +1364,7 @@ function buildDetailedScoreModel(scoreRows, captionMap, hideJudgeSlots) {
                 caption: row.caption,
                 role: row.role,
                 judgeSlot: row.judge_slot ?? 99,
+                judgeLabel: row.judge || null,
                 subcaption: row.subcaption,
             });
         }
@@ -891,14 +1376,21 @@ function buildDetailedScoreModel(scoreRows, captionMap, hideJudgeSlots) {
             const key = `cap:${caption}`;
             scores[performanceKey][key] = score;
             if (!columnMap.has(key)) {
-                columnMap.set(key, {
-                    key,
-                    label: fmtCaption(caption),
-                    caption,
-                    role: 'caption_total',
-                    judgeSlot: 100,
-                    subcaption: 'total',
-                });
+                // Suppress caption_total column when exactly one judge covers this caption
+                // (single-judge: caption_total === judge_total, redundant display)
+                const judgeTotalsForCap = [...columnMap.values()].filter(
+                    c => c.caption === caption && c.role === 'judge_total'
+                ).length;
+                if (judgeTotalsForCap !== 1) {
+                    columnMap.set(key, {
+                        key,
+                        label: fmtCaption(caption),
+                        caption,
+                        role: 'caption_total',
+                        judgeSlot: 100,
+                        subcaption: 'total',
+                    });
+                }
             }
         });
     });
@@ -924,11 +1416,25 @@ function getColumnsForPerfs(perfs, scoreModel) {
     return scoreModel.columns.filter(col => keys.has(col.key));
 }
 
+function colJudgeGroup(col) {
+    if (col.role === 'caption_total') return null;
+    if (col.judgeSlot == null || col.judgeSlot >= 50) return null;
+    return col.judgeSlot;
+}
+
 function buildShowTable(perfs, scoreModel, scoreColumns, showSubtotals, tableKey) {
+    const useGroups = scoreColumns.length > 0 && scoreColumns[0].caption != null;
+    const useJudgeGroups = useGroups && scoreColumns.some(c => (colJudgeGroup(c) ?? 0) > 1);
     const headers = [
         { label: '#', key: 'rank' },
         { label: 'Ensemble', key: 'ensemble' },
-        ...scoreColumns.map(c => ({ label: c.label, key: c.key, num: true, sortable: true })),
+        ...scoreColumns.map(c => ({
+            label: c.label, key: c.key, num: true, sortable: true,
+            captionGroup: useGroups ? c.caption : null,
+            judgeGroup: useJudgeGroups ? colJudgeGroup(c) : undefined,
+            judgeLabel: useGroups ? (c.judgeLabel || null) : null,
+            role: useGroups ? c.role : null,
+        })),
     ];
     if (showSubtotals) {
         headers.push({ label: 'Subtotal', key: 'subtotal', num: true, sortable: true });
@@ -968,7 +1474,10 @@ function buildShowTable(perfs, scoreModel, scoreColumns, showSubtotals, tableKey
         ];
         if (showSubtotals) {
             cells.push(fmt.score(p.subtotal_score));
-            cells.push(fmt.score(p.penalty_score));
+            const penVal = p.penalty_score;
+            cells.push((penVal != null && penVal !== 0)
+                ? { html: `<span class="penalty-nonzero">${escapeHtml(fmt.score(penVal))}</span>` }
+                : fmt.score(penVal));
         }
         cells.push(fmt.score(p.total_score));
         return {
@@ -986,9 +1495,100 @@ function buildShowTable(perfs, scoreModel, scoreColumns, showSubtotals, tableKey
 }
 
 function fmtCaption(raw) {
-    return raw
+    const labels = {
+        effect_music: 'Eff Mus',
+        effect_visual: 'Eff Vis',
+        music: 'Mus',
+        visual: 'Vis',
+        effect: 'Eff',
+        artistry: 'Art',
+        musicianship: 'Mus',
+        composition: 'Comp',
+        performance: 'Perf',
+        overall: 'Ovr',
+        progression: 'Prog',
+        fulfillment: 'Ful',
+        total: 'Tot',
+    };
+    return labels[raw] || String(raw)
         .replace(/_/g, ' ')
         .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function fmtCaptionFull(raw) {
+    const labels = {
+        effect_music: 'Effect Music',
+        effect_visual: 'Effect Visual',
+        music: 'Music',
+        visual: 'Visual',
+        effect: 'Effect',
+        artistry: 'Artistry',
+        musicianship: 'Musicianship',
+        composition: 'Composition',
+        performance: 'Performance',
+        overall: 'Overall',
+        progression: 'Progression',
+        fulfillment: 'Fulfillment',
+    };
+    return labels[raw] || String(raw)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function applyStickyColumns(table, n) {
+    requestAnimationFrame(() => {
+        const firstRowCells = Array.from(table.querySelector('tbody tr')?.children || []);
+        if (!firstRowCells.length) return;
+
+        const stickyCount = Math.min(n, firstRowCells.length);
+        const widths = firstRowCells.slice(0, stickyCount).map(cell => cell.getBoundingClientRect().width);
+        const offsets = widths.map((_, index) =>
+            widths.slice(0, index).reduce((sum, width) => sum + width, 0)
+        );
+
+        getHeaderLogicalCells(table).forEach(({ th, col }) => {
+            if (col >= stickyCount) return;
+            applyStickyCell(th, offsets[col], col === stickyCount - 1);
+        });
+
+        for (let col = 0; col < stickyCount; col++) {
+            table.querySelectorAll(`tbody tr td:nth-child(${col + 1})`).forEach(td => {
+                applyStickyCell(td, offsets[col], col === stickyCount - 1);
+            });
+        }
+    });
+}
+
+function applyStickyCell(cell, left, isLast) {
+    cell.classList.add('sticky-col');
+    cell.classList.toggle('sticky-col-last', isLast);
+    cell.style.left = `${left}px`;
+}
+
+function getHeaderLogicalCells(table) {
+    const rows = Array.from(table.querySelectorAll('thead tr'));
+    const occupied = [];
+    const cells = [];
+
+    rows.forEach((row, rowIndex) => {
+        if (!occupied[rowIndex]) occupied[rowIndex] = [];
+        let col = 0;
+        Array.from(row.children).forEach(th => {
+            while (occupied[rowIndex][col]) col++;
+            const colSpan = th.colSpan || 1;
+            const rowSpan = th.rowSpan || 1;
+            cells.push({ th, col, colSpan, rowSpan });
+            for (let r = rowIndex; r < rowIndex + rowSpan; r++) {
+                if (!occupied[r]) occupied[r] = [];
+                for (let c = col; c < col + colSpan; c++) {
+                    occupied[r][c] = true;
+                }
+            }
+            col += colSpan;
+        });
+    });
+
+    return cells;
 }
 
 // ============================================================
@@ -1003,6 +1603,7 @@ const _ensState = {
     classFlags: [],
     selectedSeasons: new Set(),
     detailSeasons: [],
+    seasonSortDir: 'desc',
 };
 
 const TREND_COLORS = [
@@ -1053,6 +1654,7 @@ function initEnsembleView(db) {
         _ensState.trackId = classEl.value || null;
         _ensState.selectedSeasons.clear();
         if (_ensState.trackId) {
+            document.getElementById('ens-class-group').hidden = true;
             noteEl.hidden = true;
             populateEnsembleSeasons(db);
             renderEnsembleView(db);
@@ -1062,10 +1664,77 @@ function initEnsembleView(db) {
     });
 
     detailChk.addEventListener('change', () => renderEnsembleView(db));
+
+    ['ens-sort-desc', 'ens-sort-asc'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            _ensState.seasonSortDir = btn.id === 'ens-sort-desc' ? 'desc' : 'asc';
+            document.getElementById('ens-sort-desc').classList.toggle('active', _ensState.seasonSortDir === 'desc');
+            document.getElementById('ens-sort-asc').classList.toggle('active', _ensState.seasonSortDir === 'asc');
+            renderEnsembleView(db);
+        });
+    });
+
+    const backBtn = document.getElementById('ens-back-btn');
+    if (backBtn) backBtn.addEventListener('click', showEnsembleIndex);
+
+    renderEnsembleIndex(db);
+}
+
+function renderEnsembleIndex(db) {
+    const container = document.getElementById('ens-index');
+    if (!container) return;
+    container.hidden = false;
+    const rows = getAllCanonicalEnsembles(db);
+    const byLetter = {};
+    rows.forEach(row => {
+        const letter = (row.display_name || '#').trim().charAt(0).toUpperCase();
+        const key = /^[A-Z]$/.test(letter) ? letter : '#';
+        if (!byLetter[key]) byLetter[key] = [];
+        byLetter[key].push(row);
+    });
+    container.innerHTML = '';
+    container.appendChild(el('h3', 'index-title', 'Ensemble Index'));
+    const grid = el('div', 'ensemble-index');
+    Object.keys(byLetter).sort().forEach(letter => {
+        const section = el('section', 'index-letter');
+        section.appendChild(el('h4', null, letter));
+        const list = el('div', 'index-list');
+        byLetter[letter].forEach(row => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'link-button index-link';
+            btn.textContent = row.display_name;
+            btn.addEventListener('click', () => selectEnsemble(db, row.canonical_ensemble_id, row.display_name));
+            list.appendChild(btn);
+        });
+        section.appendChild(list);
+        grid.appendChild(section);
+    });
+    container.appendChild(grid);
+}
+
+function showEnsembleIndex() {
+    document.getElementById('ens-content').hidden = true;
+    document.getElementById('ens-index').hidden = false;
+    document.getElementById('ens-class-group').hidden = true;
+    document.getElementById('ens-index-btn-group').hidden = true;
+    document.getElementById('ens-search').value = '';
+    _ensState.canonicalId = null;
+    _ensState.canonicalName = null;
+    _ensState.trackId = null;
+    _ensState.tracks = [];
+    _ensState.classFlags = [];
+    _ensState.selectedSeasons.clear();
+    _ensState.detailSeasons = [];
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function selectEnsemble(db, canonicalId, displayName, options = {}) {
     document.getElementById('ens-content').hidden = true;
+    document.getElementById('ens-index').hidden = true;
+    document.getElementById('ens-index-btn-group').hidden = false;
 
     _ensState.canonicalId = canonicalId;
     _ensState.canonicalName = displayName;
@@ -1078,6 +1747,7 @@ function selectEnsemble(db, canonicalId, displayName, options = {}) {
     const searchEl = document.getElementById('ens-search');
     const dropdown = document.getElementById('ens-dropdown');
     const classEl = document.getElementById('ens-class');
+    const classGroup = document.getElementById('ens-class-group');
     const noteEl = document.getElementById('ens-class-note');
 
     searchEl.value = displayName;
@@ -1088,6 +1758,7 @@ function selectEnsemble(db, canonicalId, displayName, options = {}) {
     const tracks = _ensState.tracks;
     const contextualTrack = chooseTrackForContext(tracks, options.season, options.classCode);
     const needsChoice = tracks.length > 1 && !contextualTrack;
+    classGroup.hidden = !needsChoice;
     classEl.innerHTML = '';
     classEl.disabled = false;
 
@@ -1149,50 +1820,139 @@ function renderEnsembleView(db) {
     const content = document.getElementById('ens-content');
     content.hidden = false;
 
-    renderRecentScores(db, canonicalId, track);
+    renderEnsembleJumps();
+    renderEnsembleHeaderAndStats(db, canonicalId, track);
     renderTrendChart(db, canonicalId, track, [...selectedSeasons].sort());
-    renderSeasonDetails(db, canonicalId, track, detailSeasons.slice().sort((a,b) => b-a));
+    renderImprovementIndex(db, canonicalId, track);
+    const sortedSeasonList = _ensState.seasonSortDir === 'asc'
+        ? detailSeasons.slice().sort((a, b) => a - b)
+        : detailSeasons.slice().sort((a, b) => b - a);
+    renderSeasonDetails(db, canonicalId, track, sortedSeasonList);
 }
 
-function renderRecentScores(db, canonicalId, track) {
-    const rows = getRecentScores(db, canonicalId, track);
-    const container = document.getElementById('ens-recent');
-    container.innerHTML = '';
+function renderEnsembleJumps() {
+    const nav = document.getElementById('ens-jumps');
+    nav.innerHTML = '';
+    [
+        ['Stats', '#ens-stats-section'],
+        ['Score Trend', '#ens-trend-section'],
+        ['Improvement Index', '#ens-improvement-section'],
+        ['Scores', '#ens-records-section'],
+    ].forEach(([label, target]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'jump-button';
+        btn.dataset.jumpTarget = target;
+        btn.textContent = label;
+        nav.appendChild(btn);
+    });
+}
 
-    if (!rows.length) {
-        container.appendChild(el('p', 'empty-msg', 'No recent scores.'));
-        return;
+function renderEnsembleHeaderAndStats(db, canonicalId, track) {
+    const title = document.getElementById('ens-title');
+    const subtitle = document.getElementById('ens-subtitle');
+    const error = document.getElementById('ens-error');
+    title.textContent = _ensState.canonicalName || track.canonical_ensemble_name || '';
+    error.hidden = true;
+    error.textContent = '';
+
+    const classification = resolveTrackClassification(db, canonicalId, track);
+    if (classification) {
+        subtitle.textContent = fmt.classCode(classification);
+    } else {
+        subtitle.textContent = '';
+        error.textContent = 'Classification could not be resolved from available performance records.';
+        error.hidden = false;
     }
 
-    const table = buildTable(
-        [
-            'Date',
-            'Season',
-            'Week',
-            'Competition',
-            ...(track.classCodes.length > 1 ? ['Class'] : []),
-            'Stage',
-            { label: 'Total', num: true },
-            { label: 'Rank', num: true },
-        ],
-        rows.map(r => [
-            fmt.date(r.performance_date),
-            fmt.int(r.season_year),
-            fmt.int(r.season_week_calendar),
-            {
-                html: routeButtonHtml('show', escapeHtml(r.competition_name), {
-                    season: r.season_year,
-                    date: r.performance_date,
-                    performanceKey: r.performance_key,
-                }),
-            },
-            ...(track.classCodes.length > 1 ? [fmt.classCode(r.class_code)] : []),
-            fmtStage(r.display_stage || r.event_stage),
-            fmt.score(r.total_score),
-            fmt.int(r.total_rank),
-        ])
-    );
-    container.appendChild(wrapTable(table));
+    renderEnsembleStats(db, canonicalId, track);
+}
+
+function resolveTrackClassification(db, canonicalId, track) {
+    if (track.classCodes.length === 1) return track.classCodes[0];
+    const rows = getRecentScores(db, canonicalId, track);
+    return rows.length ? rows[0].class_code : null;
+}
+
+function renderEnsembleStats(db, canonicalId, track) {
+    const container = document.getElementById('ens-stats');
+    container.innerHTML = '';
+    const stats = getEnsembleStats(db, canonicalId, track);
+    const seasonStats = getEnsembleSeasonStats(db, canonicalId, track);
+    const validWeekly = seasonStats
+        .map(r => r.mean_weekly_improvement)
+        .filter(v => v != null && !Number.isNaN(Number(v)))
+        .map(Number);
+    const overallWeekly = validWeekly.length
+        ? validWeekly.reduce((sum, v) => sum + v, 0) / validWeekly.length
+        : null;
+
+    const cards = el('div', 'stats-grid');
+    cards.appendChild(statCard(
+        `Finals Appearances`,
+        fmt.int(stats?.finals_appearances),
+        stats?.earliest_year ? `Since ${stats.earliest_year}` : ''
+    ));
+    cards.appendChild(statCard(
+        `Highest Score`,
+        fmt.score(stats?.highest_score),
+        stats?.highest_score_show
+            ? `${stats.highest_score_show} (${fmt.date(stats.highest_score_date, true)}, ${fmt.classCode(stats.highest_score_class)})`
+            : ''
+    ));
+    cards.appendChild(statCard(
+        `Mean Weekly Improvement`,
+        fmtSignedScore(overallWeekly),
+        `Average of valid seasons`
+    ));
+    container.appendChild(cards);
+}
+
+function renderImprovementIndex(db, canonicalId, track) {
+    const container = document.getElementById('ens-improvement');
+    container.innerHTML = '';
+    const seasonStats = getEnsembleSeasonStats(db, canonicalId, track);
+    if (seasonStats.length) {
+        const table = buildTable(
+            [
+                'Season',
+                { label: 'First', num: true },
+                'First Week',
+                { label: 'Final', num: true },
+                'Final Week',
+                { label: 'Diff', num: true },
+                { label: 'Weekly Diff', num: true },
+            ],
+            seasonStats.map(r => [
+                r.season_year,
+                fmt.score(r.first_score),
+                fmt.int(r.first_week),
+                fmt.score(r.last_score),
+                fmt.int(r.last_week),
+                fmtSignedScore(r.score_differential),
+                fmtSignedScore(r.mean_weekly_improvement),
+            ])
+        );
+        table.classList.add('stats-table');
+        container.appendChild(wrapTable(table));
+    } else {
+        container.appendChild(el('p', 'empty-msg', 'No improvement data.'));
+    }
+}
+
+function statCard(label, value, detail) {
+    const card = el('div', 'stat-card');
+    card.appendChild(el('div', 'stat-label', label));
+    card.appendChild(el('div', 'stat-value', value));
+    if (detail) card.appendChild(el('div', 'stat-detail', detail));
+    return card;
+}
+
+function fmtSignedScore(value) {
+    if (value == null || Number.isNaN(Number(value))) return '--';
+    const n = Number(value);
+    const sign = n > 0 ? '+' : '';
+    return `${sign}${formatScore(n)}`;
 }
 
 function fmtStage(stage) {
@@ -1218,6 +1978,23 @@ function renderTrendChart(db, canonicalId, track, seasons) {
     container.appendChild(shell);
 
     const allSeasons = _ensState.detailSeasons.slice().sort((a, b) => b - a);
+
+    const allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = 'chart-season-button chart-season-all';
+    allBtn.textContent = 'ALL';
+    const allActive = allSeasons.every(s => _ensState.selectedSeasons.has(s));
+    allBtn.classList.toggle('active', allActive);
+    allBtn.addEventListener('click', () => {
+        if (allSeasons.every(s => _ensState.selectedSeasons.has(s))) {
+            _ensState.selectedSeasons.clear();
+        } else {
+            allSeasons.forEach(s => _ensState.selectedSeasons.add(s));
+        }
+        renderEnsembleView(db);
+    });
+    menu.appendChild(allBtn);
+
     allSeasons.forEach((season, index) => {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -1302,18 +2079,23 @@ function renderTrendChart(db, canonicalId, track, seasons) {
         const sData = bySeason[season];
         if (!sData) return;
         const color = colorScale(season);
+        const filteredData = sData.filter(r => r.total_score != null);
 
-        g.append('path')
+        const group = g.append('g').attr('class', `season-group sg-${season}`);
+
+        group.append('path')
             .datum(sData)
+            .attr('class', `season-line sl-${season}`)
             .attr('fill', 'none')
             .attr('stroke', color)
             .attr('stroke-width', 2)
             .attr('d', line);
 
-        g.selectAll(null)
-            .data(sData.filter(r => r.total_score != null))
+        const visDots = group.selectAll(null)
+            .data(filteredData)
             .enter()
             .append('circle')
+            .attr('class', 'chart-dot')
             .attr('cx', r => x(r.season_week_calendar))
             .attr('cy', r => y(r.total_score))
             .attr('r', 5)
@@ -1321,24 +2103,47 @@ function renderTrendChart(db, canonicalId, track, seasons) {
             .attr('stroke', '#fff')
             .attr('stroke-width', 1.5);
 
-        g.selectAll(null)
-            .data(sData.filter(r => r.total_score != null))
+        group.selectAll(null)
+            .data(filteredData)
             .enter()
             .append('circle')
             .attr('cx', r => x(r.season_week_calendar))
             .attr('cy', r => y(r.total_score))
             .attr('r', 11)
             .attr('fill', 'transparent')
+            .style('cursor', 'pointer')
+            .on('mouseover', function(event, r) {
+                g.selectAll('.season-group').style('opacity', 0.22);
+                group.raise().style('opacity', 1);
+                const i = group.selectAll('circle[fill="transparent"]').nodes().indexOf(this);
+                d3.select(visDots.nodes()[i])
+                    .transition().duration(120)
+                    .attr('r', 8)
+                    .attr('stroke-width', 2);
+            })
+            .on('mouseout', function() {
+                g.selectAll('.season-group').style('opacity', 1);
+                visDots.transition().duration(150).attr('r', 5).attr('stroke-width', 1.5);
+            })
             .append('title')
             .text(r =>
-                `${fmt.date(r.performance_date)}\n${r.competition_name}\n${fmt.score(r.total_score)}\n${fmt.classCode(r.class_code)} · ${fmtStage(r.display_stage || r.event_stage)}`
+                `${fmt.date(r.performance_date, true)} — ${r.competition_name}\n${fmt.score(r.total_score)} · ${fmt.classCode(r.class_code)} · ${fmtStage(r.display_stage || r.event_stage)}`
             );
     });
 
     menu.querySelectorAll('.chart-season-button').forEach(btn => {
         const season = Number(btn.textContent);
-        btn.style.setProperty('--season-color', allSeasonColorScale(season));
+        if (!isNaN(season)) btn.style.setProperty('--season-color', allSeasonColorScale(season));
     });
+}
+
+function buildCaptionMapFromRows(captionRows) {
+    const map = {};
+    captionRows.forEach(r => {
+        if (!map[r.performance_key]) map[r.performance_key] = {};
+        map[r.performance_key][r.caption] = r.score;
+    });
+    return map;
 }
 
 function renderSeasonDetails(db, canonicalId, track, seasons) {
@@ -1355,16 +2160,20 @@ function renderSeasonDetails(db, canonicalId, track, seasons) {
 
     if (!seasonData.length) return;
 
-    const jumps = el('nav', 'ensemble-season-jumps');
-    seasonData.forEach(({ season }) => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'jump-button';
-        btn.dataset.jumpTarget = `#ensemble-season-${season}`;
-        btn.textContent = season;
-        jumps.appendChild(btn);
-    });
-    container.appendChild(jumps);
+    const jumpsNav = document.getElementById('ens-season-jumps-nav');
+    if (jumpsNav) {
+        jumpsNav.innerHTML = '';
+        const jumps = el('nav', 'ensemble-season-jumps');
+        seasonData.forEach(({ season }) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'jump-button';
+            btn.dataset.jumpTarget = `#ensemble-season-${season}`;
+            btn.textContent = season;
+            jumps.appendChild(btn);
+        });
+        jumpsNav.appendChild(jumps);
+    }
 
     const detailed = document.getElementById('ens-detail').checked;
 
@@ -1372,57 +2181,94 @@ function renderSeasonDetails(db, canonicalId, track, seasons) {
         const block = el('div', 'season-detail-block');
         block.id = `ensemble-season-${season}`;
         const placement = getLeaderboardPlacement(db, canonicalId, track, season);
-        const placementText = placement == null ? '' : ` - Final ranking #${placement}`;
+        const placementHtml = placement == null
+            ? ''
+            : ` — Final ranking #<span class="season-ranking-num">${placement}</span>`;
         const lastClass = getTrackLastClassForSeason(db, canonicalId, track, season);
         const heading = el('h4');
-        heading.innerHTML = `${routeButtonHtml('leaderboard', String(season), {
+        heading.innerHTML = `<span class="season-year-label">${routeButtonHtml('leaderboard', String(season), {
             season,
             classCode: lastClass,
-        })} - ${escapeHtml(_ensState.canonicalName)}${escapeHtml(placementText)}`;
+        })}</span> — ${escapeHtml(_ensState.canonicalName)}${placementHtml}`;
         block.appendChild(heading);
 
-        const captionRows = querySeasonEnsembleCaptions(db, canonicalId, track, season);
-        const captionMap = {};
-        captionRows.forEach(r => {
-            if (!captionMap[r.performance_key]) captionMap[r.performance_key] = {};
-            captionMap[r.performance_key][r.caption] = r.score;
-        });
-        const scoreModel = detailed
-            ? buildDetailedScoreModel(getSeasonEnsembleRawScores(db, canonicalId, track, season), captionMap, false)
-            : buildCaptionScoreModel(captionRows, captionMap);
-        const scoreColumns = getColumnsForPerfs(perfs, scoreModel);
+        const allCaptionRows = querySeasonEnsembleCaptions(db, canonicalId, track, season);
+        const allRawRows = detailed ? getSeasonEnsembleRawScores(db, canonicalId, track, season) : [];
 
-        const headers = [
-            'Date',
-            'Week',
-            'Competition',
-            ...(track.classCodes.length > 1 ? ['Class'] : []),
-            'Stage',
-            ...scoreColumns.map(c => ({ label: c.label, num: true })),
-            { label: 'Total', num: true },
-            { label: 'Rank', num: true },
-        ];
-        const rows = perfs.map(p => {
-            const scores = scoreModel.scores[p.performance_key] || {};
-            return [
-                fmt.date(p.performance_date),
-                fmt.int(p.season_week_calendar),
-                {
-                    html: routeButtonHtml('show', escapeHtml(p.competition_name), {
-                        season: p.season_year,
-                        date: p.performance_date,
-                        performanceKey: p.performance_key,
-                    }),
-                },
-                ...(track.classCodes.length > 1 ? [fmt.classCode(p.class_code)] : []),
-                fmtStage(p.display_stage || p.event_stage),
-                ...scoreColumns.map(c => fmt.score(scores[c.key])),
-                fmt.score(p.total_score),
-                fmt.int(p.total_rank),
+        const FINALS_STAGE = 'championship_finals';
+        const finalsPerfs = perfs.filter(p => (p.display_stage || p.event_stage) === FINALS_STAGE);
+        const regularPerfs = perfs.filter(p => (p.display_stage || p.event_stage) !== FINALS_STAGE);
+        const hasBoth = finalsPerfs.length > 0 && regularPerfs.length > 0;
+
+        const buildSubTable = (subPerfs) => {
+            const keys = new Set(subPerfs.map(p => p.performance_key));
+            const subCaptionRows = allCaptionRows.filter(r => keys.has(r.performance_key));
+            const subRawRows = allRawRows.filter(r => keys.has(r.performance_key));
+            const subCaptionMap = buildCaptionMapFromRows(subCaptionRows);
+            const scoreModel = detailed
+                ? buildDetailedScoreModel(subRawRows, subCaptionMap, false)
+                : buildCaptionScoreModel(subCaptionRows, subCaptionMap);
+            const scoreColumns = getColumnsForPerfs(subPerfs, scoreModel);
+            const useGroups = detailed && scoreColumns.length > 0 && scoreColumns[0].caption != null;
+            const isFinalsOnly = subPerfs.every(p => (p.display_stage || p.event_stage) === FINALS_STAGE);
+            const useJudgeGroups = useGroups && (
+                isFinalsOnly || scoreColumns.some(c => (colJudgeGroup(c) ?? 0) > 1)
+            );
+
+            const headers = [
+                'Date',
+                'Week',
+                'Competition',
+                ...(track.classCodes.length > 1 ? ['Class'] : []),
+                'Stage',
+                ...scoreColumns.map(c => ({
+                    label: c.label, num: true,
+                    captionGroup: useGroups ? c.caption : null,
+                    judgeGroup: useJudgeGroups ? colJudgeGroup(c) : undefined,
+                    judgeLabel: useJudgeGroups && isFinalsOnly ? (c.judgeLabel || null) : null,
+                    role: useGroups ? c.role : null,
+                })),
+                { label: 'Total', num: true },
+                { label: 'Rank', num: true },
             ];
-        });
+            const rows = subPerfs.map(p => {
+                const scores = scoreModel.scores[p.performance_key] || {};
+                return [
+                    fmt.date(p.performance_date),
+                    fmt.int(p.season_week_calendar),
+                    {
+                        html: routeButtonHtml('show', escapeHtml(p.competition_name), {
+                            season: p.season_year,
+                            date: p.performance_date,
+                            performanceKey: p.performance_key,
+                        }),
+                    },
+                    ...(track.classCodes.length > 1 ? [fmt.classCode(p.class_code)] : []),
+                    fmtStage(p.display_stage || p.event_stage),
+                    ...scoreColumns.map(c => fmt.score(scores[c.key])),
+                    fmt.score(p.total_score),
+                    fmt.int(p.total_rank),
+                ];
+            });
+            return buildTable(headers, rows);
+        };
 
-        block.appendChild(wrapTable(buildTable(headers, rows)));
+        if (hasBoth) {
+            block.appendChild(el('div', 'block-heading', 'Regular Season / Prelims'));
+            const regTbl = buildSubTable(regularPerfs);
+            block.appendChild(wrapTable(regTbl));
+            applyStickyColumns(regTbl, 3);
+
+            block.appendChild(el('div', 'block-heading', 'Finals'));
+            const finTbl = buildSubTable(finalsPerfs);
+            block.appendChild(wrapTable(finTbl));
+            applyStickyColumns(finTbl, 3);
+        } else {
+            const tbl = buildSubTable(perfs);
+            block.appendChild(wrapTable(tbl));
+            applyStickyColumns(tbl, 3);
+        }
+
         container.appendChild(block);
     });
 }
@@ -1444,6 +2290,111 @@ function querySeasonEnsembleCaptions(db, canonicalId, track, season) {
          ORDER BY performance_key, caption`,
         [canonicalId, ...filter.params, season]
     );
+}
+
+// ============================================================
+// Judge Statistics
+// ============================================================
+
+function initJudgeStats(db) {
+    renderJudgeStats(db);
+}
+
+function renderJudgeStats(db) {
+    const container = document.getElementById('judge-content');
+    container.innerHTML = '';
+    const rows = getJudgeDirectory(db);
+    container.appendChild(el('h2', 'section-title', 'Judge Statistics'));
+    container.appendChild(el('p', 'section-note', 'Full names are manually maintained in config/judge_names.csv. Raw parsed judge labels remain unchanged.'));
+    const table = buildTable(
+        [
+            'Judge Label',
+            'Display Name',
+            'Status',
+            { label: 'Score Rows', num: true },
+            { label: 'Performances', num: true },
+        ],
+        rows.map(r => [
+            r.judge_abbrev,
+            r.judge_display_name,
+            r.mapping_status,
+            fmt.int(r.score_rows),
+            fmt.int(r.performance_count),
+        ])
+    );
+    container.appendChild(wrapTable(table));
+}
+
+// ============================================================
+// SQL Query
+// ============================================================
+
+function initSqlTab(db) {
+    renderSqlSchema(db);
+    document.getElementById('sql-run').addEventListener('click', () => renderSqlResults(db));
+    document.getElementById('sql-clear').addEventListener('click', () => {
+        document.getElementById('sql-input').value = '';
+        document.getElementById('sql-results').innerHTML = '';
+        setSqlMessage('');
+    });
+}
+
+function renderSqlSchema(db) {
+    const container = document.getElementById('sql-schema');
+    const objects = getSchemaObjects(db);
+    const tables = objects.filter(o => o.type === 'table').map(o => o.name);
+    const views = objects.filter(o => o.type === 'view').map(o => o.name);
+    container.innerHTML = `
+        <h3>Schema Reference</h3>
+        <p>Read-only queries may start with SELECT or WITH. Display is capped at 500 rows.</p>
+        <h4>Tables</h4>
+        <p>${tables.map(escapeHtml).join(', ')}</p>
+        <h4>Views</h4>
+        <p>${views.map(escapeHtml).join(', ')}</p>
+        <h4>Examples</h4>
+        <pre>SELECT * FROM v_frontend_season_leaderboard WHERE season_year = 2026 LIMIT 20;</pre>
+        <pre>SELECT canonical_ensemble_name, total_score FROM v_frontend_ensemble_performances ORDER BY total_score DESC LIMIT 10;</pre>
+    `;
+}
+
+function renderSqlResults(db) {
+    const sql = document.getElementById('sql-input').value;
+    const container = document.getElementById('sql-results');
+    container.innerHTML = '';
+    setSqlMessage('');
+    try {
+        const result = runReadOnlySql(db, sql);
+        if (!result.rows.length) {
+            container.appendChild(el('p', 'empty-msg', 'Query returned no rows.'));
+            return;
+        }
+        const columns = Object.keys(result.rows[0]);
+        const table = buildTable(
+            columns.map(col => ({ label: col, num: result.rows.every(row => isNumericOrEmpty(row[col])) })),
+            result.rows.map(row => columns.map(col => formatSqlCell(row[col])))
+        );
+        container.appendChild(wrapTable(table));
+        if (result.truncated) {
+            setSqlMessage(`Showing first 500 of ${result.totalRows} rows.`);
+        }
+    } catch (error) {
+        setSqlMessage(error.message);
+    }
+}
+
+function setSqlMessage(message) {
+    const el = document.getElementById('sql-message');
+    el.textContent = message;
+    el.hidden = !message;
+}
+
+function isNumericOrEmpty(value) {
+    return value == null || value === '' || !Number.isNaN(Number(value));
+}
+
+function formatSqlCell(value) {
+    if (value == null) return '--';
+    return String(value);
 }
 
 // ============================================================
@@ -1474,7 +2425,7 @@ function querySeasonEnsembleCaptions(db, canonicalId, track, season) {
     }
 
     _db = db;
-    statusBar.textContent = 'Ready';
+    statusBar.innerHTML = '<span class="db-ready-dot"></span>Database ready';
 
     document.getElementById('app').hidden = false;
 
@@ -1486,4 +2437,6 @@ function querySeasonEnsembleCaptions(db, canonicalId, track, season) {
     initLeaderboard(db);
     initShowRecords(db);
     initEnsembleView(db);
+    // initJudgeStats(db);   // hidden — dev-branch feature
+    // initSqlTab(db);       // hidden — dev-branch feature
 })();

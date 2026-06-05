@@ -24,11 +24,33 @@ header {
     margin: 0 auto;
 }
 
+.site-title-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+}
+
 .site-title {
-    font-size: 1rem;
+    font-size: 1.6rem;
+    line-height: 1;
+    letter-spacing: -0.01em;
+}
+
+.site-title-scpa {
+    font-weight: 300;
+    color: #888;
+}
+
+.site-title-db {
     font-weight: 700;
-    letter-spacing: 0.01em;
     color: #000;
+}
+
+.site-title-byline {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: #999;
+    align-self: center;
 }
 
 /* ===== Tab bar ===== */
@@ -50,20 +72,23 @@ header {
     padding: 0.65rem 1.1rem;
     font-family: 'Roboto', sans-serif;
     font-size: 0.85rem;
-    font-weight: 500;
+    font-weight: 400;
     color: #555;
     cursor: pointer;
     white-space: nowrap;
-    transition: color 0.1s, border-color 0.1s;
+    border-radius: 3px 3px 0 0;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
 
 .tab-btn:hover {
     color: #000;
+    background: #ebebeb;
 }
 
 .tab-btn.active {
     color: #000;
     border-bottom-color: #000;
+    background: #e6e6e6;
 }
 
 /* ===== Status bar ===== */
@@ -164,7 +189,8 @@ main {
 }
 
 .season-buttons,
-.ensemble-season-jumps {
+.ensemble-season-jumps,
+.ensemble-jumps {
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem;
@@ -209,6 +235,35 @@ main {
 .link-button:focus {
     outline: 2px solid #000;
     outline-offset: 1px;
+}
+
+.secondary-button {
+    background: transparent;
+    border: 1px solid #aaa;
+    border-radius: 3px;
+    color: #555;
+    font-size: 0.78rem;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.secondary-button:hover,
+.secondary-button:focus {
+    border-color: #000;
+    color: #000;
+    outline: 2px solid #000;
+    outline-offset: 1px;
+}
+
+#ens-index-btn-group {
+    display: flex;
+    justify-content: flex-start;
+    margin: -0.75rem 0 1.25rem;
+}
+
+#ens-index-btn-group[hidden] {
+    display: none;
 }
 
 /* ===== Ensemble dropdown ===== */
@@ -453,7 +508,262 @@ tbody tr:nth-child(even):hover td {
     padding: 0 0.1rem;
 }
 
+.compact-score-table {
+    font-size: 0.72rem;
+}
+
+.compact-score-table thead th {
+    padding: 0.25rem 0.35rem;
+    font-size: 0.64rem;
+    line-height: 1.15;
+    vertical-align: bottom;
+}
+
+.compact-score-table tbody td {
+    padding: 0.22rem 0.35rem;
+    line-height: 1.12;
+}
+
+/* ===== Sticky first columns ===== */
+.sticky-col {
+    position: sticky;
+    z-index: 2;
+    left: 0;
+}
+
+thead .sticky-col {
+    background: #f5f5f5;
+    z-index: 3;
+}
+
+/* Match alternating row backgrounds so sticky cells don't show white gaps */
+tbody td.sticky-col {
+    background: #fff;
+}
+
+tbody tr:nth-child(even) td.sticky-col {
+    background: #f8f8f8;
+}
+
+tbody tr:hover td.sticky-col,
+tbody tr:nth-child(even):hover td.sticky-col {
+    background: #f0f0f0;
+}
+
+/* Divider after last sticky column */
+.sticky-col-last {
+    box-shadow: 3px 0 6px -3px rgba(0,0,0,0.18);
+}
+
+/* ===== Grouped caption headers (detailed score view) ===== */
+
+/* Level 1: caption group header — darkest */
+.header-caption-group {
+    background: #d4d4d4;
+    text-align: center;
+    font-size: 0.70rem;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0.03em;
+    color: #222;
+    padding: 0.28rem 0.4rem 0.2rem;
+    border-bottom: 1px solid #bbb;
+}
+
+/* Level 2: judge sub-group header — medium */
+.header-judge-group {
+    background: #e2e2e2;
+    text-align: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #333;
+    padding: 0.22rem 0.35rem 0.18rem;
+    border-bottom: 1px solid #c8c8c8;
+}
+
+/* Level 2 (rowspan=2): caption total — medium-dark */
+.header-caption-total {
+    background: #dadada;
+    text-align: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #222;
+    padding: 0.22rem 0.35rem;
+    border-left: 1px solid #c4c4c4;
+}
+
+/* Level 3: individual score type header — lightest */
+.header-judge-total-col {
+    background: #ececec;
+}
+
+/* 2-level caption group header (single-judge detailed) */
+.caption-group-header {
+    background: #d8d8d8;
+    text-align: center;
+    border-bottom: 1px solid #c0c0c0;
+    font-size: 0.70rem;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0.03em;
+    color: #222;
+    padding: 0.28rem 0.4rem 0.2rem;
+}
+
+.compact-score-table .caption-group-header,
+.compact-score-table .header-caption-group,
+.compact-score-table .header-judge-group,
+.compact-score-table .header-caption-total {
+    font-size: 0.60rem;
+    padding: 0.18rem 0.28rem 0.14rem;
+}
+
+/* ===== Column role background shading (data cells) ===== */
+.col-judge-total {
+    background: #f8f8f8;
+}
+
+.col-caption-total {
+    background: #f2f2f2;
+}
+
+/* Ultra-compact for 3-level detailed tables */
+.detail-table-3level {
+    font-size: 0.68rem;
+}
+
+.detail-table-3level thead th {
+    padding: 0.18rem 0.28rem;
+    font-size: 0.60rem;
+    white-space: nowrap;
+}
+
+.detail-table-3level tbody td {
+    padding: 0.18rem 0.28rem;
+}
+
+/* Row-3 individual score headers default background — prevents white gaps
+   in 3-level grouped tables; specific role classes override where needed */
+.detail-table-3level thead tr:last-child th {
+    background: #ececec;
+}
+
 /* ===== Ensemble view sections ===== */
+.index-title,
+.section-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #444;
+    margin-bottom: 0.75rem;
+}
+
+.section-note {
+    color: #555;
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.ensemble-index {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.9rem;
+}
+
+.index-letter {
+    background: #fff;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    padding: 0.75rem;
+}
+
+.index-letter h4 {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #555;
+    margin-bottom: 0.45rem;
+}
+
+.index-list {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+}
+
+.index-link {
+    font-size: 0.84rem;
+}
+
+.ensemble-hero {
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #d8d8d8;
+}
+
+.ensemble-jumps {
+    margin-bottom: 1rem;
+}
+
+.ensemble-hero h2 {
+    font-size: 1.55rem;
+    font-weight: 700;
+    line-height: 1.15;
+    color: #000;
+}
+
+#ens-subtitle {
+    margin-top: 0.2rem;
+    color: #666;
+    font-size: 0.95rem;
+    font-weight: 400;
+}
+
+.inline-error {
+    margin-top: 0.45rem;
+    color: #9f1d1d;
+    font-size: 0.85rem;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+}
+
+.stat-card {
+    background: #fff;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    padding: 0.75rem;
+}
+
+.stat-label {
+    font-size: 0.67rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #555;
+}
+
+.stat-value {
+    margin-top: 0.2rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #000;
+}
+
+.stat-detail {
+    margin-top: 0.2rem;
+    color: #666;
+    font-size: 0.76rem;
+    line-height: 1.25;
+}
+
 .ens-section {
     margin-bottom: 1.75rem;
 }
@@ -553,12 +863,29 @@ tbody tr:nth-child(even):hover td {
 }
 
 .season-detail-block h4 {
-    font-size: 0.78rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: #555;
+    font-size: 0.85rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #333;
     margin-bottom: 0.5rem;
+}
+
+.season-year-label {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #000;
+}
+
+.season-year-label .link-button {
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+}
+
+.season-ranking-num {
+    font-weight: 700;
+    color: #000;
 }
 
 /* ===== Empty / loading states ===== */
@@ -574,14 +901,94 @@ tbody tr:nth-child(even):hover td {
 }
 
 @keyframes target-highlight-fade {
-    0% {
-        background: #fff2a8;
-        box-shadow: inset 0 0 0 2px #c69a00;
-    }
-    100% {
-        background: transparent;
-        box-shadow: inset 0 0 0 0 transparent;
-    }
+    0% { background: #d8d8d8; }
+    100% { background: transparent; }
+}
+
+/* ===== SQL tab ===== */
+.sql-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 1rem;
+    align-items: start;
+}
+
+.sql-editor,
+.sql-schema {
+    background: #fff;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    padding: 0.9rem;
+}
+
+.sql-editor label {
+    display: block;
+    margin-bottom: 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #444;
+}
+
+#sql-input {
+    width: 100%;
+    min-height: 150px;
+    padding: 0.65rem;
+    border: 1px solid #bbb;
+    border-radius: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    resize: vertical;
+}
+
+.sql-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.6rem 0;
+}
+
+.sql-actions button {
+    min-height: 2.1rem;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid #cfcfcf;
+    border-radius: 4px;
+    background: #fff;
+    color: #000;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.sql-schema h3,
+.sql-schema h4 {
+    margin-bottom: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #444;
+}
+
+.sql-schema h4 {
+    margin-top: 0.75rem;
+}
+
+.sql-schema p,
+.sql-schema pre {
+    color: #555;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.sql-schema pre {
+    overflow-x: auto;
+    margin-top: 0.35rem;
+    padding: 0.45rem;
+    background: #f7f7f7;
+    border: 1px solid #e5e5e5;
 }
 
 /* ===== Mobile ===== */
@@ -637,4 +1044,138 @@ tbody tr:nth-child(even):hover td {
         flex-wrap: wrap;
         order: -1;
     }
+
+    .sql-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* ===== Penalty red ===== */
+.penalty-nonzero {
+    color: #c00;
+    font-weight: 500;
+}
+
+/* ===== Ensemble records section ===== */
+#ens-records-section {
+    margin-top: 0.5rem;
+    scroll-margin-top: 1rem;
+}
+
+#ens-season-jumps-nav {
+    margin-bottom: 0.75rem;
+}
+
+.ens-records-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+}
+
+.ens-detail-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.4rem 0.85rem;
+    border: 2px solid #bbb;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #555;
+    cursor: pointer;
+    user-select: none;
+    background: #fff;
+    transition: border-color 0.1s, color 0.1s, background 0.1s;
+}
+
+.ens-detail-label:has(input:checked) {
+    border-color: #000;
+    color: #000;
+    background: #f0f0f0;
+}
+
+.ens-detail-label input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+
+.ens-sort-control {
+    display: inline-flex;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.sort-dir-btn {
+    padding: 0.4rem 0.8rem;
+    border: none;
+    border-right: 1px solid #ccc;
+    background: #fff;
+    color: #777;
+    font-family: 'Roboto', sans-serif;
+    font-size: 0.8rem;
+    font-weight: 400;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+
+.sort-dir-btn:last-child {
+    border-right: none;
+}
+
+.sort-dir-btn.active {
+    background: #f0f0f0;
+    color: #000;
+    font-weight: 500;
+}
+
+.sort-dir-btn:hover:not(.active) {
+    background: #f8f8f8;
+    color: #333;
+}
+
+/* ===== Status bar green dot ===== */
+.db-ready-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #2a9d2a;
+    margin-right: 0.4rem;
+    vertical-align: middle;
+    position: relative;
+    top: -1px;
+}
+
+/* ===== D3 chart hover ===== */
+.chart-dot {
+    transition: r 0.12s ease;
+    cursor: pointer;
+}
+
+/* ===== Per-table mobile zoom ===== */
+.table-wrap {
+    transform-origin: top left;
+}
+
+.table-zoomed .sticky-col {
+    position: static !important;
+    left: auto !important;
+    box-shadow: none !important;
+}
+
+/* ===== Chart season ALL button ===== */
+.chart-season-all {
+    border-left-width: 1px !important;
+    background: #f8f8f8;
+    color: #555;
+    font-style: normal;
+}
+
+.chart-season-all.active {
+    background: #fff;
+    color: #000;
 }

@@ -12,6 +12,7 @@ from pathlib import Path
 DB_PATH = Path("scores.db")
 ALIASES_PATH = Path("config/ensemble_aliases.csv")
 TRACKS_PATH = Path("config/ensemble_class_tracks.csv")
+JUDGES_PATH = Path("config/judge_names.csv")
 
 DERIVED_VIEWS = [
     "v_frontend_show_scores",
@@ -28,6 +29,7 @@ DERIVED_TABLES = [
     "ensemble_multi_group_seasons",
     "ensemble_class_season_flags",
     "duplicate_ensemble_candidates",
+    "judge_lookup",
     "judge_block_stats",
     "score_blocks",
     "season_weekends",
@@ -53,6 +55,13 @@ class TrackRule:
     track_label: str
     class_codes: str
     season_years: str
+    notes: str
+
+
+@dataclass(frozen=True)
+class JudgeRule:
+    judge_abbrev: str
+    judge_full_name: str
     notes: str
 
 
@@ -121,6 +130,25 @@ def _load_track_rules(path: Path) -> dict[str, list[TrackRule]]:
                     season_years=season_years,
                     notes=row.get("notes", "").strip(),
                 )
+            )
+    return rules
+
+
+def _load_judge_rules(path: Path) -> dict[str, JudgeRule]:
+    if not path.exists():
+        return {}
+
+    rules: dict[str, JudgeRule] = {}
+    with path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            abbrev = row["judge_abbrev"].strip()
+            if not abbrev:
+                continue
+            rules[abbrev] = JudgeRule(
+                judge_abbrev=abbrev,
+                judge_full_name=row.get("judge_full_name", "").strip(),
+                notes=row.get("notes", "").strip(),
             )
     return rules
 
@@ -230,6 +258,13 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             mean_score           REAL NOT NULL,
             score_range          REAL NOT NULL,
             stddev_score         REAL
+        );
+
+        CREATE TABLE judge_lookup (
+            judge_abbrev       TEXT PRIMARY KEY,
+            judge_full_name    TEXT,
+            judge_display_name TEXT NOT NULL,
+            notes              TEXT
         );
 
         CREATE TABLE judge_block_stats (
@@ -546,6 +581,34 @@ def _build_score_blocks(conn: sqlite3.Connection) -> None:
          judge_slot, score_count, min_score, max_score, mean_score,
          score_range, stddev_score)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        inserts,
+    )
+
+
+def _build_judge_lookup(conn: sqlite3.Connection, judge_rules: dict[str, JudgeRule]) -> None:
+    observed = conn.execute(
+        """
+        SELECT DISTINCT judge
+        FROM scores
+        WHERE judge IS NOT NULL AND trim(judge) <> ''
+        ORDER BY judge
+        """
+    ).fetchall()
+
+    inserts = []
+    for row in observed:
+        abbrev = row["judge"]
+        rule = judge_rules.get(abbrev)
+        full_name = rule.judge_full_name if rule and rule.judge_full_name else None
+        notes = rule.notes if rule else ""
+        inserts.append((abbrev, full_name, full_name or abbrev, notes))
+
+    conn.executemany(
+        """
+        INSERT INTO judge_lookup
+        (judge_abbrev, judge_full_name, judge_display_name, notes)
+        VALUES (?, ?, ?, ?)
         """,
         inserts,
     )
@@ -1090,6 +1153,8 @@ def _create_views(conn: sqlite3.Connection) -> None:
         CREATE VIEW v_judge_block_stats AS
         SELECT
             jbs.*,
+            jl.judge_full_name,
+            jl.judge_display_name,
             vpc.performance_date,
             vpc.competition_name,
             vpc.class_code,
@@ -1101,6 +1166,8 @@ def _create_views(conn: sqlite3.Connection) -> None:
             vpc.season_week_index,
             vpc.event_stage
         FROM judge_block_stats jbs
+        LEFT JOIN judge_lookup jl
+            ON jl.judge_abbrev = jbs.judge
         JOIN v_performances_canonical vpc
             ON vpc.performance_key = jbs.performance_key;
 
@@ -1178,9 +1245,13 @@ def _create_views(conn: sqlite3.Connection) -> None:
             s.score,
             s.rank,
             s.judge,
+            jl.judge_full_name,
+            jl.judge_display_name,
             s.judge_slot
         FROM v_frontend_show_performances vfsp
-        JOIN scores s ON s.performance_key = vfsp.performance_key;
+        JOIN scores s ON s.performance_key = vfsp.performance_key
+        LEFT JOIN judge_lookup jl
+            ON jl.judge_abbrev = s.judge;
 
         CREATE VIEW v_frontend_ensemble_performances AS
         SELECT
@@ -1234,9 +1305,10 @@ def _create_views(conn: sqlite3.Connection) -> None:
     )
 
 
-def rebuild(db_path: Path, aliases_path: Path, tracks_path: Path) -> None:
+def rebuild(db_path: Path, aliases_path: Path, tracks_path: Path, judges_path: Path) -> None:
     alias_rules = _load_alias_rules(aliases_path)
     track_rules = _load_track_rules(tracks_path)
+    judge_rules = _load_judge_rules(judges_path)
     with _connect(db_path) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         _reset_derived_objects(conn)
@@ -1245,6 +1317,7 @@ def rebuild(db_path: Path, aliases_path: Path, tracks_path: Path) -> None:
         _build_events(conn)
         _build_season_weekends(conn)
         _build_score_blocks(conn)
+        _build_judge_lookup(conn, judge_rules)
         _build_judge_block_stats(conn)
         _build_duplicate_candidates(conn)
         _create_views(conn)
@@ -1272,6 +1345,11 @@ def main() -> None:
         help="CSV file with manual ensemble class-track rules",
     )
     parser.add_argument(
+        "--judges",
+        default=str(JUDGES_PATH),
+        help="CSV file with manual judge display-name rules",
+    )
+    parser.add_argument(
         "--rebuild",
         action="store_true",
         help="Drop and recreate derived tables/views",
@@ -1281,7 +1359,7 @@ def main() -> None:
     if not args.rebuild:
         parser.error("Only --rebuild is currently supported")
 
-    rebuild(Path(args.db), Path(args.aliases), Path(args.tracks))
+    rebuild(Path(args.db), Path(args.aliases), Path(args.tracks), Path(args.judges))
 
 
 if __name__ == "__main__":

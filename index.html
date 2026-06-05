@@ -12,14 +12,19 @@
 <body>
     <header>
         <div class="header-inner">
-            <span class="site-title">SCPA Scoring Database</span>
+            <div class="site-title-group">
+                <span class="site-title"><span class="site-title-scpa">scpa</span><strong class="site-title-db">db</strong></span>
+                <span class="site-title-byline">presented by GAN</span>
+            </div>
         </div>
     </header>
 
     <nav class="tab-bar">
-        <button class="tab-btn active" data-tab="leaderboard">Season Leaderboard</button>
-        <button class="tab-btn" data-tab="show-records">Show Records</button>
-        <button class="tab-btn" data-tab="ensemble">Ensemble View</button>
+        <button class="tab-btn active" data-tab="leaderboard">Leaderboard</button>
+        <button class="tab-btn" data-tab="show-records">Recaps by Show</button>
+        <button class="tab-btn" data-tab="ensemble">Ensembles</button>
+        <button class="tab-btn" data-tab="judges" hidden>Judge Statistics</button>
+        <button class="tab-btn" data-tab="sql" hidden>SQL Query</button>
     </nav>
 
     <div id="status-bar" class="status-bar">Loading database&hellip;</div>
@@ -30,8 +35,7 @@
         <div id="tab-leaderboard" class="tab-panel">
             <div class="controls">
                 <div class="control-group">
-                    <label for="lb-season">Season</label>
-                    <select id="lb-season"></select>
+                    <label>Season</label>
                     <div id="lb-season-buttons" class="season-buttons"></div>
                 </div>
             </div>
@@ -42,8 +46,8 @@
         <div id="tab-show-records" class="tab-panel" hidden>
             <div class="controls">
                 <div class="control-group">
-                    <label for="sr-season">Season</label>
-                    <select id="sr-season"></select>
+                    <label>Season</label>
+                    <div id="sr-season-buttons" class="season-buttons"></div>
                 </div>
                 <div class="control-group">
                     <label for="sr-date">Show Day</label>
@@ -73,30 +77,73 @@
                     <input type="text" id="ens-search" placeholder="Search ensembles&hellip;" autocomplete="off">
                     <ul id="ens-dropdown" class="dropdown" hidden></ul>
                 </div>
-                <div class="control-group">
+                <div class="control-group" id="ens-class-group" hidden>
                     <label for="ens-class">Group</label>
                     <select id="ens-class" disabled>
                         <option value="">— select ensemble first —</option>
                     </select>
                     <div id="ens-class-note" class="control-note" hidden></div>
                 </div>
-                <div class="control-group control-toggle">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="ens-detail">
-                        Detailed records
-                    </label>
-                </div>
             </div>
+            <div id="ens-index-btn-group" hidden>
+                <button type="button" id="ens-back-btn" class="secondary-button">&#8592; Index</button>
+            </div>
+            <div id="ens-index"></div>
             <div id="ens-content" hidden>
-                <section class="ens-section">
-                    <h3>Recent Scores</h3>
-                    <div id="ens-recent"></div>
+                <section class="ensemble-hero">
+                    <h2 id="ens-title"></h2>
+                    <div id="ens-subtitle"></div>
+                    <div id="ens-error" class="inline-error" hidden></div>
                 </section>
-                <section class="ens-section">
+                <nav id="ens-jumps" class="ensemble-jumps"></nav>
+                <section id="ens-stats-section" class="ens-section">
+                    <h3>Stats</h3>
+                    <div id="ens-stats"></div>
+                </section>
+                <section id="ens-trend-section" class="ens-section">
                     <h3>Score Trend</h3>
                     <div id="ens-chart"></div>
                 </section>
-                <div id="ens-season-details"></div>
+                <section id="ens-improvement-section" class="ens-section">
+                    <h3>Improvement Index</h3>
+                    <div id="ens-improvement"></div>
+                </section>
+                <div id="ens-records-section">
+                    <div id="ens-season-jumps-nav"></div>
+                    <div class="ens-records-controls">
+                        <label class="ens-detail-label">
+                            <input type="checkbox" id="ens-detail">
+                            <span>Detailed records</span>
+                        </label>
+                        <div class="ens-sort-control">
+                            <button type="button" id="ens-sort-desc" class="sort-dir-btn active">Newest first</button>
+                            <button type="button" id="ens-sort-asc" class="sort-dir-btn">Oldest first</button>
+                        </div>
+                    </div>
+                    <div id="ens-season-details"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Judge Statistics ===== -->
+        <div id="tab-judges" class="tab-panel" hidden>
+            <div id="judge-content"></div>
+        </div>
+
+        <!-- ===== SQL Query ===== -->
+        <div id="tab-sql" class="tab-panel" hidden>
+            <div class="sql-layout">
+                <section class="sql-editor">
+                    <label for="sql-input">Advanced read-only SQL</label>
+                    <textarea id="sql-input" spellcheck="false">SELECT * FROM performances LIMIT 10;</textarea>
+                    <div class="sql-actions">
+                        <button type="button" id="sql-run">Run</button>
+                        <button type="button" id="sql-clear">Clear</button>
+                    </div>
+                    <div id="sql-message" class="inline-error" hidden></div>
+                    <div id="sql-results"></div>
+                </section>
+                <aside id="sql-schema" class="sql-schema"></aside>
             </div>
         </div>
 

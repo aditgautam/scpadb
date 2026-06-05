@@ -6,6 +6,9 @@ CompetitionSuite recap pages using
 stored in a committed SQLite file, and queryable in-browser via a static HTML
 frontend powered by sql.js and D3.
 
+The frontend includes Season Leaderboard, Show Records, Ensemble View, Judge
+Statistics, and read-only SQL Query tabs.
+
 ## Setup
 
     uv sync
@@ -25,6 +28,10 @@ judge block statistics:
 Manual ensemble merge rules live in `config/ensemble_aliases.csv`. The raw
 `performances` and `scores` tables remain the source of truth; derived tables
 and views are rebuilt from them.
+
+Manual judge full-name mappings live in `config/judge_names.csv`. Leave unknown
+full-name cells blank; `scripts/derive.py` falls back to the parsed abbreviated
+judge label.
 
 ## Run the frontend locally
 
