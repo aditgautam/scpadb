@@ -3,72 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>scpadb — SCPA Scoring Database</title>
+    <title>SCPA Scoring Database</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 </head>
 <body>
     <header>
-        <h1>SCPA Scoring Database</h1>
-        <p class="subtitle">Historical competitive percussion results from CompetitionSuite</p>
+        <div class="header-inner">
+            <span class="site-title">SCPA Scoring Database</span>
+        </div>
     </header>
 
-    <main>
-        <section id="filters">
-            <div class="filter-group">
-                <label for="ensemble-search">Ensemble</label>
-                <input type="text" id="ensemble-search" placeholder="Search ensembles…" autocomplete="off">
-            </div>
-            <div class="filter-group">
-                <label for="class-select">Class</label>
-                <select id="class-select">
-                    <option value="">All Classes</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label for="year-select">Year</label>
-                <select id="year-select">
-                    <option value="">All Years</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label for="caption-select">Caption</label>
-                <select id="caption-select">
-                    <option value="">All Captions</option>
-                </select>
-            </div>
-        </section>
+    <nav class="tab-bar">
+        <button class="tab-btn active" data-tab="leaderboard">Season Leaderboard</button>
+        <button class="tab-btn" data-tab="show-records">Show Records</button>
+        <button class="tab-btn" data-tab="ensemble">Ensemble View</button>
+    </nav>
 
-        <section id="status">
-            <p id="status-msg">Loading database…</p>
-        </section>
+    <div id="status-bar" class="status-bar">Loading database&hellip;</div>
 
-        <section id="results" hidden>
-            <h2>Performances <span id="result-count"></span></h2>
-            <div class="table-wrap">
-                <table id="results-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Ensemble</th>
-                            <th>Class</th>
-                            <th>Competition</th>
-                            <th>Total</th>
-                            <th>Rank</th>
-                            <th>Place</th>
-                        </tr>
-                    </thead>
-                    <tbody id="results-body"></tbody>
-                </table>
-            </div>
-        </section>
+    <main id="app" hidden>
 
-        <section id="charts" hidden>
-            <div id="score-trajectory">
-                <h2>Score Trajectory</h2>
-                <svg id="trajectory-chart"></svg>
+        <!-- ===== Season Leaderboard ===== -->
+        <div id="tab-leaderboard" class="tab-panel">
+            <div class="controls">
+                <div class="control-group">
+                    <label for="lb-season">Season</label>
+                    <select id="lb-season"></select>
+                    <div id="lb-season-buttons" class="season-buttons"></div>
+                </div>
             </div>
-        </section>
+            <div id="lb-content"></div>
+        </div>
+
+        <!-- ===== Show Records ===== -->
+        <div id="tab-show-records" class="tab-panel" hidden>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="sr-season">Season</label>
+                    <select id="sr-season"></select>
+                </div>
+                <div class="control-group">
+                    <label for="sr-date">Show Day</label>
+                    <select id="sr-date"><option value="">— select season first —</option></select>
+                </div>
+                <div class="control-group control-toggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="sr-combine">
+                        Combine same-class blocks
+                    </label>
+                </div>
+                <div class="control-group control-toggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="sr-detail">
+                        Detailed scores
+                    </label>
+                </div>
+            </div>
+            <div id="sr-content"></div>
+        </div>
+
+        <!-- ===== Ensemble View ===== -->
+        <div id="tab-ensemble" class="tab-panel" hidden>
+            <div class="controls">
+                <div class="control-group" style="position:relative">
+                    <label for="ens-search">Ensemble</label>
+                    <input type="text" id="ens-search" placeholder="Search ensembles&hellip;" autocomplete="off">
+                    <ul id="ens-dropdown" class="dropdown" hidden></ul>
+                </div>
+                <div class="control-group">
+                    <label for="ens-class">Group</label>
+                    <select id="ens-class" disabled>
+                        <option value="">— select ensemble first —</option>
+                    </select>
+                    <div id="ens-class-note" class="control-note" hidden></div>
+                </div>
+                <div class="control-group control-toggle">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="ens-detail">
+                        Detailed records
+                    </label>
+                </div>
+            </div>
+            <div id="ens-content" hidden>
+                <section class="ens-section">
+                    <h3>Recent Scores</h3>
+                    <div id="ens-recent"></div>
+                </section>
+                <section class="ens-section">
+                    <h3>Score Trend</h3>
+                    <div id="ens-chart"></div>
+                </section>
+                <div id="ens-season-details"></div>
+            </div>
+        </div>
+
     </main>
 
     <script src="js/sql-wasm.js"></script>

@@ -1,0 +1,35 @@
+canonical_ensemble_id,display_name,alias_ensemble_slug,alias_name,notes
+canyon_hs,Canyon HS (Anaheim Hills),canyon_hs,Canyon HS,Manual check: Anaheim Hills canonical group.
+canyon_hs,Canyon HS (Anaheim Hills),canyon_hs_ah,Canyon HS (AH),Manual check: Anaheim Hills abbreviation.
+canyon_hs,Canyon HS (Anaheim Hills),canyon_hs_oc,Canyon HS (OC),Manual check: merge with Anaheim Hills canonical group.
+canyon_hs_cc,Canyon HS (CC),canyon_hs_cc,Canyon HS (CC),Manual check: Canyon Country is distinct.
+dark_sky,Dark Sky,dark_sky,Dark Sky,Manual check: canonical self-mapping.
+dark_sky,Dark Sky,dark_sky_percussion,Dark Sky Percussion,Manual check: same independent ensemble registered under older full name.
+ecr,ECR,ecr,ECR,Manual check: canonical self-mapping.
+ecr,ECR,ecr_independent,ECR Independent,Manual check: same independent ensemble.
+elan_percussion,Elan Percussion,elan_percussion,Elan Percussion,Manual check: canonical self-mapping.
+elan_percussion,Elan Percussion,lan_percussion,Élan Percussion,Manual check listed _lan_percussion; actual DB slug is lan_percussion.
+granada_hills_chs,Granada Hills CHS,granada_hills_chs,Granada Hills CHS,Manual check: canonical self-mapping.
+granada_hills_chs,Granada Hills CHS,granada_hills_charter,Granada Hills Charter,Manual check: same school.
+la_canada_hs,La Canada HS,la_canada_hs,La Canada HS,Manual check: canonical self-mapping.
+la_canada_hs,La Canada HS,la_ca_ada_hs,La Cañada HS,Manual check: same school with accent/slug variation.
+la_quinta_hs,La Quinta HS,la_quinta_hs,La Quinta HS,Manual check: canonical self-mapping.
+la_quinta_hs,La Quinta HS,la_quinta_hs_oc,La Quinta HS (OC),Manual check: merge with canonical La Quinta group.
+la_quinta_hs,La Quinta HS,la_quinta_hs_w,La Quinta HS (W),Manual check: merge with canonical La Quinta group.
+meraki,Meraki,meraki,Meraki,Manual check: canonical self-mapping.
+meraki,Meraki,meraki_percussion,Meraki Percussion,Manual check: same independent ensemble.
+oci,OCI,oci,OCI,Manual check: canonical self-mapping.
+oci,OCI,orange_county_independent,Orange County Independent,Manual check: same independent ensemble.
+san_marcos_hs,San Marcos HS,san_marcos_hs,San Marcos HS,Manual check: canonical self-mapping.
+san_marcos_hs,San Marcos HS,san_marcos_hs_sb,San Marcos HS (SB),Manual check: same school.
+st_genevieve_hs,St. Genevieve HS,st_genevieve_hs,St. Genevieve HS,Manual check: canonical self-mapping.
+st_genevieve_hs,St. Genevieve HS,st_genevieve_parish_schools,St. Genevieve Parish Schools,Manual check: same school.
+valencia_hs_oc,Valencia HS (OC),valencia_hs,Valencia HS,Manual check: merge with Orange County/P group.
+valencia_hs_oc,Valencia HS (OC),valencia_hs_oc,Valencia HS (OC),Manual check: canonical self-mapping.
+valencia_hs_oc,Valencia HS (OC),valencia_hs_p,Valencia HS (P),Manual check: merge with Orange County/P group.
+valencia_hs_v,Valencia HS (V),valencia_hs_v,Valencia HS (V),Manual check: distinct Valencia V group.
+vessel,Vessel,vessel,Vessel,Manual check: same organization as Vessel Indoor Percussion.
+vessel,Vessel,vessel_indoor_percussion,Vessel Indoor Percussion,Manual check: same organization as Vessel.
+west_hs,West HS (Torrance),west_hs,West HS,Manual check: Torrance canonical group.
+west_hs,West HS (Torrance),west_hs_t,West HS (T),Manual check: Torrance abbreviation.
+west_hs,West HS (Torrance),west_hs_torrance,West HS (Torrance),Manual check: same school.

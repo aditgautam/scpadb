@@ -1,0 +1,4 @@
+canonical_ensemble_id,track_id,track_label,class_codes,season_years,notes
+arcadia_hs,psw_line,PSW line,psw,"2017,2018,2019,2020,2022,2023,2024,2025,2026",Manual split: Arcadia has same-season multi-ensemble history and recurring PSW group.
+arcadia_hs,pso_line,PSO line,pso,"2017,2018,2019,2020,2022",Manual split: Arcadia Open line appears through 2022 before later A-class records.
+arcadia_hs,psa_line,PSA line,psa,"2017,2018,2019,2023,2024,2025,2026",Manual split: Arcadia A line returns after the 2020/2022 Open-only seasons.

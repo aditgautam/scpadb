@@ -12,8 +12,19 @@ frontend powered by sql.js and D3.
 
 ## Ingest new data
 
-    uv run python ingest.py "https://recaps.competitionsuite.com/<uuid>.htm"
-    uv run python ingest.py --batch urls/all_seasons.txt
+    uv run python scripts/ingest.py "https://recaps.competitionsuite.com/<uuid>.htm"
+    uv run python scripts/ingest.py --batch urls/all_seasons.txt
+
+## Rebuild derived analysis tables
+
+After ingesting, rebuild canonical ensemble mappings, event/week metadata, and
+judge block statistics:
+
+    uv run python scripts/derive.py --rebuild
+
+Manual ensemble merge rules live in `config/ensemble_aliases.csv`. The raw
+`performances` and `scores` tables remain the source of truth; derived tables
+and views are rebuilt from them.
 
 ## Run the frontend locally
 
@@ -29,10 +40,12 @@ them in `js/`.
 
 ## EDA notebooks
 
+Run `scripts/derive.py --rebuild` before the judge and trend notebooks.
+
     uv run jupyter notebook notebooks/
 
 ## Seed the database from scratch
 
-    uv run python ingest.py --batch urls/all_seasons.txt
+    uv run python scripts/ingest.py --batch urls/all_seasons.txt
     git add scores.db
     git commit -m "seed database with full historical dataset"
