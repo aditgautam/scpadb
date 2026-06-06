@@ -48,11 +48,26 @@ the frontend will work. Grab them from the
 [sql.js releases page](https://github.com/sql-js/sql.js/releases) and place
 them in `js/`.
 
-## EDA notebooks
+## Analysis
 
 Run `scripts/derive.py --rebuild` before the judge and trend notebooks.
 
-    uv run jupyter notebook notebooks/
+    uv run python scripts/audit_tracks.py
+    uv run jupyter notebook analysis/notebooks/
+
+Research notebooks, generated modeling data, and analysis outputs live under
+`analysis/`. Review `docs/TRACK_AUDIT.md` before rebuilding the modeling
+dataset. See `analysis/README.md` for the directory contract.
+
+## Report
+
+The ACM-format report source lives in `report/`.
+
+    cd report
+    make
+
+This produces `report/main.pdf`. The PDF may later be linked or embedded as a
+frontend tab without moving it out of the repository.
 
 ## Seed the database from scratch
 

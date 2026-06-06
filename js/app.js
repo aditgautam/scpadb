@@ -217,10 +217,16 @@ function getAllCanonicalEnsembles(db) {
 
 function getEnsembleTracks(db, canonicalId) {
     return query(db,
-        `SELECT *
-         FROM ensemble_class_tracks
-         WHERE canonical_ensemble_id = ?
-         ORDER BY display_order, track_label`,
+        `SELECT
+            t.*,
+            GROUP_CONCAT(a.class_code || ':' || a.season_year) AS assignment_pairs
+         FROM ensemble_class_tracks t
+         JOIN ensemble_track_assignments a
+           ON a.canonical_ensemble_id = t.canonical_ensemble_id
+          AND a.track_id = t.track_id
+         WHERE t.canonical_ensemble_id = ?
+         GROUP BY t.canonical_ensemble_id, t.track_id
+         ORDER BY t.display_order, t.track_label`,
         [canonicalId]
     ).map(trackFromRow);
 }
@@ -230,6 +236,10 @@ function trackFromRow(row) {
         ...row,
         classCodes: splitCsv(row.class_codes),
         seasonYears: splitCsv(row.season_years).map(Number),
+        assignments: splitCsv(row.assignment_pairs).map(pair => {
+            const [classCode, seasonYear] = pair.split(':');
+            return { classCode, seasonYear: Number(seasonYear) };
+        }),
     };
 }
 
@@ -246,12 +256,12 @@ function selectedTrack() {
 
 function trackWhere(track, alias = '') {
     const prefix = alias ? `${alias}.` : '';
-    const classPlaceholders = track.classCodes.map(() => '?').join(',');
-    const seasonPlaceholders = track.seasonYears.map(() => '?').join(',');
+    const clauses = track.assignments.map(
+        () => `(${prefix}class_code = ? AND ${prefix}season_year = ?)`
+    );
     return {
-        sql: ` AND ${prefix}class_code IN (${classPlaceholders})
-               AND ${prefix}season_year IN (${seasonPlaceholders})`,
-        params: [...track.classCodes, ...track.seasonYears],
+        sql: ` AND (${clauses.join(' OR ')})`,
+        params: track.assignments.flatMap(a => [a.classCode, a.seasonYear]),
     };
 }
 
@@ -339,18 +349,12 @@ function getTrackLastClassForSeason(db, canonicalId, track, season) {
 function getPromotedSeasonRows(db) {
     return query(db,
         `SELECT
-            p.canonical_ensemble_id,
-            p.season_year,
-            GROUP_CONCAT(DISTINCT p.class_code) AS class_codes
-         FROM v_frontend_ensemble_performances p
-         WHERE EXISTS (
-            SELECT 1
-            FROM ensemble_class_tracks t
-            WHERE t.canonical_ensemble_id = p.canonical_ensemble_id
-              AND t.class_codes LIKE '%,%'
-         )
-         GROUP BY p.canonical_ensemble_id, p.season_year
-         HAVING COUNT(DISTINCT p.class_code) > 1`
+            canonical_ensemble_id,
+            track_id,
+            season_year,
+            class_codes
+         FROM ensemble_track_season_flags
+         WHERE signal = 'midseason_promotion'`
     );
 }
 

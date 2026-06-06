@@ -25,6 +25,8 @@ DERIVED_VIEWS = [
 
 DERIVED_TABLES = [
     "v_frontend_season_leaderboard",
+    "ensemble_track_assignments",
+    "ensemble_track_season_flags",
     "ensemble_class_tracks",
     "ensemble_multi_group_seasons",
     "ensemble_class_season_flags",
@@ -55,6 +57,7 @@ class TrackRule:
     track_label: str
     class_codes: str
     season_years: str
+    assignments: tuple[tuple[str, int], ...]
     notes: str
 
 
@@ -122,6 +125,21 @@ def _load_track_rules(path: Path) -> dict[str, list[TrackRule]]:
                 for year in row["season_years"].split(",")
                 if year.strip()
             )
+            assignments = []
+            assignment_text = row.get("assignments", "").strip()
+            for segment in assignment_text.split(";"):
+                if not segment.strip():
+                    continue
+                class_code, separator, years_text = segment.partition(":")
+                if not separator:
+                    raise ValueError(
+                        f"Invalid track assignment {segment!r}; expected class:year,year"
+                    )
+                assignments.extend(
+                    (class_code.strip().lower(), int(year.strip()))
+                    for year in years_text.split(",")
+                    if year.strip()
+                )
             rules[canonical_id].append(
                 TrackRule(
                     canonical_id=canonical_id,
@@ -129,6 +147,7 @@ def _load_track_rules(path: Path) -> dict[str, list[TrackRule]]:
                     track_label=row["track_label"].strip(),
                     class_codes=class_codes,
                     season_years=season_years,
+                    assignments=tuple(assignments),
                     notes=row.get("notes", "").strip(),
                 )
             )
@@ -789,6 +808,18 @@ _STAGE_PRIORITY: dict[str, int] = {
     "championship_prelims": 3,
     "regular": 4,
 }
+_CONCERT_CLASSES = {"psca", "psco", "pscw"}
+_MARCHING_CLASSES = {"pia", "pio", "piw", "psa", "pso", "psw"}
+
+
+def _class_format(class_code: str) -> str:
+    if class_code in _CONCERT_CLASSES:
+        return "concert"
+    if class_code == "psj":
+        return "junior"
+    if class_code in _MARCHING_CLASSES:
+        return "marching"
+    return "other"
 
 
 def _build_ensemble_class_season_flags(conn: sqlite3.Connection) -> None:
@@ -872,7 +903,8 @@ def _build_ensemble_class_tracks(
             canonical_ensemble_name,
             season_year,
             class_code,
-            min(performance_date) AS first_date
+            min(performance_date) AS first_date,
+            max(performance_date) AS last_date
         FROM v_frontend_ensemble_performances
         GROUP BY canonical_ensemble_id, canonical_ensemble_name, season_year, class_code
         ORDER BY canonical_ensemble_id, first_date, class_code
@@ -886,19 +918,47 @@ def _build_ensemble_class_tracks(
         by_ensemble[cid].append(row)
         names[cid] = row["canonical_ensemble_name"]
 
-    multi_ensemble_ids = {
-        row["canonical_ensemble_id"]
+    multi_line_formats = {
+        (row["canonical_ensemble_id"], row["class_format"])
         for row in conn.execute(
             """
-            SELECT canonical_ensemble_id
-            FROM ensemble_class_season_flags
-            WHERE signal = 'multi_ensemble_likely'
-            GROUP BY canonical_ensemble_id
+            WITH classified AS (
+                SELECT
+                    canonical_ensemble_id,
+                    season_year,
+                    performance_date,
+                    display_stage,
+                    class_code,
+                    CASE
+                        WHEN class_code IN ('psca','psco','pscw') THEN 'concert'
+                        WHEN class_code = 'psj' THEN 'junior'
+                        WHEN class_code IN ('pia','pio','piw','psa','pso','psw') THEN 'marching'
+                        ELSE 'other'
+                    END AS class_format
+                FROM v_frontend_ensemble_performances
+            ),
+            same_date AS (
+                SELECT canonical_ensemble_id, class_format
+                FROM classified
+                GROUP BY canonical_ensemble_id, season_year, performance_date, class_format
+                HAVING COUNT(DISTINCT class_code) > 1
+            ),
+            multiple_prelims AS (
+                SELECT canonical_ensemble_id, class_format
+                FROM classified
+                WHERE display_stage = 'championship_prelims'
+                GROUP BY canonical_ensemble_id, season_year, class_format
+                HAVING COUNT(DISTINCT class_code) > 1
+            )
+            SELECT canonical_ensemble_id, class_format FROM same_date
+            UNION
+            SELECT canonical_ensemble_id, class_format FROM multiple_prelims
             """
         )
     }
 
     inserts = []
+    assignment_inserts = []
     for cid, ensemble_rows in by_ensemble.items():
         manual_rules = track_rules.get(cid, [])
         if manual_rules:
@@ -917,67 +977,99 @@ def _build_ensemble_class_tracks(
                         rule.notes,
                     )
                 )
+                assignments = rule.assignments or tuple(
+                    (class_code, int(season_year))
+                    for class_code in rule.class_codes.split(",")
+                    for season_year in rule.season_years.split(",")
+                )
+                assignment_inserts.extend(
+                    (cid, rule.track_id, class_code, season_year)
+                    for class_code, season_year in assignments
+                )
             continue
 
-        class_codes = sorted({row["class_code"] for row in ensemble_rows})
-        season_years = sorted({str(row["season_year"]) for row in ensemble_rows})
+        rows_by_format: dict[str, list[sqlite3.Row]] = defaultdict(list)
+        for row in ensemble_rows:
+            rows_by_format[_class_format(row["class_code"])].append(row)
 
-        if len(class_codes) == 1:
-            cls = class_codes[0]
-            inserts.append(
-                (
-                    cid,
-                    names[cid],
-                    f"class:{cls}",
-                    cls.upper(),
-                    cls,
-                    ",".join(season_years),
-                    1,
-                    "auto_single_class",
-                    None,
-                )
-            )
-        elif cid in multi_ensemble_ids:
-            for display_order, cls in enumerate(class_codes, start=1):
-                years = sorted(
-                    {
-                        str(row["season_year"])
-                        for row in ensemble_rows
-                        if row["class_code"] == cls
-                    }
-                )
+        display_order = 0
+        for class_format, format_rows in sorted(rows_by_format.items()):
+            class_codes = sorted({row["class_code"] for row in format_rows})
+            season_years = sorted({str(row["season_year"]) for row in format_rows})
+            latest_class = max(
+                format_rows, key=lambda row: (row["last_date"], row["class_code"])
+            )["class_code"]
+
+            if len(class_codes) == 1:
+                cls = class_codes[0]
+                track_id = f"class:{cls}"
+                display_order += 1
                 inserts.append(
                     (
                         cid,
                         names[cid],
-                        f"class:{cls}",
+                        track_id,
                         cls.upper(),
                         cls,
-                        ",".join(years),
+                        ",".join(season_years),
                         display_order,
-                        "auto_multi_ensemble_class",
+                        "auto_single_class",
                         None,
                     )
                 )
-        else:
-            ordered_classes = []
-            for row in ensemble_rows:
-                cls = row["class_code"]
-                if cls not in ordered_classes:
-                    ordered_classes.append(cls)
-            label = "Promoted track (" + " -> ".join(c.upper() for c in ordered_classes) + ")"
+                assignment_inserts.extend(
+                    (cid, track_id, cls, int(year)) for year in season_years
+                )
+                continue
+
+            if (cid, class_format) in multi_line_formats:
+                for cls in class_codes:
+                    years = sorted(
+                        {
+                            str(row["season_year"])
+                            for row in format_rows
+                            if row["class_code"] == cls
+                        }
+                    )
+                    track_id = f"class:{cls}"
+                    display_order += 1
+                    inserts.append(
+                        (
+                            cid,
+                            names[cid],
+                            track_id,
+                            cls.upper(),
+                            cls,
+                            ",".join(years),
+                            display_order,
+                            "auto_multi_ensemble_class",
+                            None,
+                        )
+                    )
+                    assignment_inserts.extend(
+                        (cid, track_id, cls, int(year)) for year in years
+                    )
+                continue
+
+            track_id = f"track:{class_format}"
+            display_order += 1
             inserts.append(
                 (
                     cid,
                     names[cid],
-                    "track:program",
-                    label,
-                    ",".join(ordered_classes),
+                    track_id,
+                    latest_class.upper(),
+                    ",".join(class_codes),
                     ",".join(season_years),
-                    1,
+                    display_order,
                     "auto_class_change",
-                    None,
+                    "Continuous line inferred because no season shows evidence "
+                    f"of multiple {class_format} ensembles.",
                 )
+            )
+            assignment_inserts.extend(
+                (cid, track_id, row["class_code"], row["season_year"])
+                for row in format_rows
             )
 
     conn.executemany(
@@ -988,6 +1080,88 @@ def _build_ensemble_class_tracks(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         inserts,
+    )
+    conn.executemany(
+        """
+        INSERT INTO ensemble_track_assignments
+        (canonical_ensemble_id, track_id, class_code, season_year)
+        VALUES (?, ?, ?, ?)
+        """,
+        assignment_inserts,
+    )
+
+    mixed_format_tracks = conn.execute(
+        """
+        SELECT canonical_ensemble_id, track_id
+        FROM ensemble_track_assignments
+        GROUP BY canonical_ensemble_id, track_id
+        HAVING COUNT(DISTINCT CASE
+            WHEN class_code IN ('psca','psco','pscw') THEN 'concert'
+            WHEN class_code = 'psj' THEN 'junior'
+            WHEN class_code IN ('pia','pio','piw','psa','pso','psw') THEN 'marching'
+            ELSE 'other'
+        END) > 1
+        """
+    ).fetchall()
+    if mixed_format_tracks:
+        details = ", ".join(
+            f"{row['canonical_ensemble_id']}:{row['track_id']}"
+            for row in mixed_format_tracks
+        )
+        raise ValueError(f"Tracks cannot cross marching/Concert formats: {details}")
+
+
+def _build_ensemble_track_season_flags(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        INSERT INTO ensemble_track_season_flags
+        WITH assigned AS (
+            SELECT DISTINCT
+                v.canonical_ensemble_id,
+                v.canonical_ensemble_name,
+                eta.track_id,
+                v.season_year,
+                v.performance_date,
+                v.class_code,
+                CASE v.class_code
+                    WHEN 'pia' THEN 1 WHEN 'pio' THEN 2 WHEN 'piw' THEN 3
+                    WHEN 'psa' THEN 1 WHEN 'pso' THEN 2 WHEN 'psw' THEN 3
+                    WHEN 'psca' THEN 1 WHEN 'psco' THEN 2 WHEN 'pscw' THEN 3
+                    ELSE 1
+                END AS class_level
+            FROM v_frontend_ensemble_performances v
+            JOIN ensemble_track_assignments eta
+              ON eta.canonical_ensemble_id = v.canonical_ensemble_id
+             AND eta.class_code = v.class_code
+             AND eta.season_year = v.season_year
+        ),
+        transitions AS (
+            SELECT
+                *,
+                lag(class_level) OVER (
+                    PARTITION BY canonical_ensemble_id, track_id, season_year
+                    ORDER BY performance_date, class_code
+                ) AS previous_level
+            FROM assigned
+        )
+        SELECT
+            canonical_ensemble_id,
+            canonical_ensemble_name,
+            track_id,
+            season_year,
+            group_concat(DISTINCT upper(class_code)) AS class_codes,
+            count(DISTINCT class_code) AS class_count,
+            'midseason_promotion' AS signal
+        FROM transitions
+        GROUP BY
+            canonical_ensemble_id,
+            canonical_ensemble_name,
+            track_id,
+            season_year
+        HAVING count(DISTINCT class_code) > 1
+           AND sum(CASE WHEN class_level > previous_level THEN 1 ELSE 0 END) > 0
+           AND sum(CASE WHEN class_level < previous_level THEN 1 ELSE 0 END) = 0
+        """
     )
 
 
@@ -1038,6 +1212,29 @@ def _create_frontend_tables(conn: sqlite3.Connection) -> None:
             source                   TEXT NOT NULL,
             notes                    TEXT,
             PRIMARY KEY (canonical_ensemble_id, track_id)
+        );
+
+        CREATE TABLE ensemble_track_assignments (
+            canonical_ensemble_id TEXT NOT NULL,
+            track_id              TEXT NOT NULL,
+            class_code           TEXT NOT NULL,
+            season_year          INTEGER NOT NULL,
+            PRIMARY KEY (canonical_ensemble_id, class_code, season_year),
+            FOREIGN KEY (canonical_ensemble_id, track_id)
+                REFERENCES ensemble_class_tracks(canonical_ensemble_id, track_id)
+        );
+
+        CREATE TABLE ensemble_track_season_flags (
+            canonical_ensemble_id    TEXT NOT NULL,
+            canonical_ensemble_name  TEXT NOT NULL,
+            track_id                 TEXT NOT NULL,
+            season_year              INTEGER NOT NULL,
+            class_codes              TEXT NOT NULL,
+            class_count              INTEGER NOT NULL,
+            signal                   TEXT NOT NULL,
+            PRIMARY KEY (canonical_ensemble_id, track_id, season_year),
+            FOREIGN KEY (canonical_ensemble_id, track_id)
+                REFERENCES ensemble_class_tracks(canonical_ensemble_id, track_id)
         );
         """
     )
@@ -1345,6 +1542,7 @@ def rebuild(db_path: Path, aliases_path: Path, tracks_path: Path, judges_path: P
         _create_frontend_tables(conn)
         _build_ensemble_class_season_flags(conn)
         _build_ensemble_class_tracks(conn, track_rules)
+        _build_ensemble_track_season_flags(conn)
         _build_frontend_season_leaderboard(conn)
 
     print(f"rebuilt derived tables in {db_path}")

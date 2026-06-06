@@ -6,7 +6,25 @@ __pycache__/
 .DS_Store
 .claude/
 docs/
-PRD.md
+/PRD.md
 data/full_sample_data.json
+analysis/data/*
+!analysis/data/.gitkeep
+analysis/outputs/*
+!analysis/outputs/figures/
+!analysis/outputs/figures/.gitkeep
+!analysis/outputs/tables/
+!analysis/outputs/tables/.gitkeep
+
+# LaTeX build products; report/main.pdf is retained for optional web publishing.
+report/*.aux
+report/*.bbl
+report/*.blg
+report/*.fdb_latexmk
+report/*.fls
+report/*.log
+report/*.out
+report/*.synctex.gz
+report/*.toc
 
 # scores.db is intentionally NOT gitignored

@@ -1,4 +1,12 @@
-canonical_ensemble_id,track_id,track_label,class_codes,season_years,notes
-arcadia_hs,psw_line,PSW line,psw,"2017,2018,2019,2020,2022,2023,2024,2025,2026",Manual split: Arcadia has same-season multi-ensemble history and recurring PSW group.
-arcadia_hs,pso_line,PSO line,pso,"2017,2018,2019,2020,2022",Manual split: Arcadia Open line appears through 2022 before later A-class records.
-arcadia_hs,psa_line,PSA line,psa,"2017,2018,2019,2023,2024,2025,2026",Manual split: Arcadia A line returns after the 2020/2022 Open-only seasons.
+canonical_ensemble_id,track_id,track_label,class_codes,season_years,assignments,notes
+arcadia_hs,psw_line,PSW,psw,"2017,2018,2019,2020,2022,2023,2024,2025,2026","psw:2017,2018,2019,2020,2022,2023,2024,2025,2026",Manual split: Arcadia has same-season multi-ensemble history and recurring PSW group.
+arcadia_hs,lower_marching_line,PSA (prev. PSO),"pso,psa","2017,2018,2019,2020,2022,2023,2024,2025,2026","pso:2017,2018,2019,2020,2022;psa:2023,2024,2025,2026",Confirmed continuity: PSO through 2022 continues as PSA from 2023 onward.
+arcadia_hs,early_psa_line,PSA (legacy),psa,"2017,2018,2019","psa:2017,2018,2019",Separate third marching ensemble present through 2019.
+etiwanda_hs,psw_line,PSW,"pso,psw","2017,2018,2019,2020,2022,2023,2024,2025,2026","pso:2017;psw:2017,2018,2019,2020,2022,2023,2024,2025,2026",Confirmed mid-season promotion: 2017 week-one PSO record continues as PSW from March 2017 onward and in every later season.
+etiwanda_hs,concert_a_line,PSCA,psca,"2017,2018,2019","psca:2017,2018,2019",Concert ensemble; never contiguous with a marching track.
+etiwanda_hs,concert_open_line,PSCO,psco,"2017,2018","psco:2017,2018",Concert ensemble; never contiguous with a marching track.
+vista_murrieta_hs,promoted_marching_line,PSW,"pso,psw","2017,2018,2019,2020,2022,2023,2024,2025,2026","pso:2017;psw:2018,2019,2020,2022,2023,2024,2025,2026",Confirmed continuity: 2017 PSO line promoted to PSW beginning in 2018.
+vista_murrieta_hs,psa_line,PSA,psa,"2017,2018","psa:2017,2018",Separate marching ensemble confirmed by distinct prelims appearances.
+vista_murrieta_hs,concert_world_line,PSCW,pscw,2026,pscw:2026,Concert ensemble; never contiguous with a marching track.
+rancho_cucamonga_hs,pso_line,PSO,"pso,psa","2017,2018,2019,2020,2022,2023,2024,2025,2026","pso:2017,2018,2019,2020,2022,2023,2024,2025,2026;psa:2023",Confirmed continuity: sole marching line was promoted from PSA to PSO during 2023.
+rancho_cucamonga_hs,concert_open_line,PSCO,psco,2020,psco:2020,Concert ensemble; never contiguous with the marching line.
