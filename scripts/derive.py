@@ -31,6 +31,7 @@ DERIVED_TABLES = [
     "ensemble_multi_group_seasons",
     "ensemble_class_season_flags",
     "duplicate_ensemble_candidates",
+    "analysis_excluded_performances",
     "judge_lookup",
     "judge_block_stats",
     "score_blocks",
@@ -332,6 +333,29 @@ def _create_tables(conn: sqlite3.Connection) -> None:
             ensemble_name_b      TEXT NOT NULL,
             reason               TEXT NOT NULL
         );
+
+        CREATE TABLE analysis_excluded_performances (
+            performance_key TEXT PRIMARY KEY REFERENCES performances(performance_key),
+            reason          TEXT NOT NULL,
+            detected_by     TEXT NOT NULL
+        );
+        """
+    )
+
+
+def _build_analysis_exclusions(conn: sqlite3.Connection) -> None:
+    """Flag records retained in the database but excluded from analysis."""
+    conn.execute(
+        """
+        INSERT INTO analysis_excluded_performances
+        (performance_key, reason, detected_by)
+        SELECT
+            performance_key,
+            'all_zero_score_artifact',
+            'subtotal_score = 0 AND total_score = 0'
+        FROM performances
+        WHERE subtotal_score = 0
+          AND total_score = 0
         """
     )
 
@@ -560,7 +584,13 @@ def _build_score_blocks(conn: sqlite3.Connection) -> None:
             AND e.competition_slug = p.competition_slug
         JOIN season_weekends sw ON sw.season_year = e.season_year
             AND sw.weekend_start = e.weekend_start
-        WHERE s.role = 'raw_score' AND s.judge IS NOT NULL
+        WHERE s.role = 'raw_score'
+          AND s.judge IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM analysis_excluded_performances aep
+              WHERE aep.performance_key = p.performance_key
+          )
         ORDER BY e.event_id, p.class_code, p.round, s.caption, s.subcaption, s.judge, s.judge_slot
         """
     ).fetchall()
@@ -684,7 +714,13 @@ def _build_judge_block_stats(conn: sqlite3.Connection) -> None:
             AND sb.subcaption = s.subcaption
             AND sb.judge = s.judge
             AND (sb.judge_slot = s.judge_slot OR (sb.judge_slot IS NULL AND s.judge_slot IS NULL))
-        WHERE s.role = 'raw_score' AND s.judge IS NOT NULL
+        WHERE s.role = 'raw_score'
+          AND s.judge IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM analysis_excluded_performances aep
+              WHERE aep.performance_key = s.performance_key
+          )
         ORDER BY s.id
         """
     ).fetchall()
@@ -1531,6 +1567,7 @@ def rebuild(db_path: Path, aliases_path: Path, tracks_path: Path, judges_path: P
         conn.execute("PRAGMA foreign_keys = ON")
         _reset_derived_objects(conn)
         _create_tables(conn)
+        _build_analysis_exclusions(conn)
         _build_ensembles(conn, alias_rules)
         _build_events(conn)
         _build_season_weekends(conn)

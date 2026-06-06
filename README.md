@@ -53,9 +53,20 @@ them in `js/`.
 Run `scripts/derive.py --rebuild` before the judge and trend notebooks.
 
     uv run python scripts/audit_tracks.py
-    uv run jupyter notebook analysis/notebooks/
+    uv run python scripts/build_model_dataset.py
+    uv run python scripts/verify_analysis_ready.py
+    uv run python scripts/run_descriptive_analysis.py
+    uv run python scripts/run_model_analysis.py
+    uv run python scripts/run_secondary_analysis.py
 
-Research notebooks, generated modeling data, and analysis outputs live under
+    # edit a notebook interactively in the browser
+    uv run marimo edit analysis/notebooks/01_eda.py
+
+    # run a notebook headlessly (no browser)
+    uv run marimo run --headless analysis/notebooks/01_eda.py
+
+Research notebooks are Marimo pure-Python files (`.py`) under
+`analysis/notebooks/`. Generated modeling data and analysis outputs live under
 `analysis/`. Review `docs/TRACK_AUDIT.md` before rebuilding the modeling
 dataset. See `analysis/README.md` for the directory contract.
 

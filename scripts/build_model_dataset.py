@@ -24,7 +24,8 @@ Output columns (see RESEARCH_PROJECT_OVERVIEW.md for full spec):
                    (+ _z and _missing variants of each subcaption feature)
   prior history:   has_prior_history, prior_champ_percentile,
                    prior_champ_subtotal, n_prior_seasons,
-                   years_since_prior
+                   years_since_prior, prior_class_code,
+                   class_change_direction
   targets:         terminal_subtotal_score, terminal_stage,
                    championship_percentile  (secondary, 0-1)
 
@@ -44,6 +45,10 @@ import pandas as pd
 import numpy as np
 
 MARCHING_CLASSES = {"pia", "pio", "piw", "psa", "psj", "pso", "psw"}
+CLASS_LEVEL = {
+    "pia": 1, "pio": 2, "piw": 3,
+    "psa": 1, "pso": 2, "psw": 3,
+}
 
 # Stage priority for terminal championship selection (lower = better)
 STAGE_PRIORITY = {
@@ -100,6 +105,11 @@ def load_raw(conn):
           ON vsp.performance_key = vep.performance_key
         JOIN performances p ON p.performance_key = vep.performance_key
         WHERE vep.class_code IN ('pia','pio','piw','psa','psj','pso','psw')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM analysis_excluded_performances aep
+              WHERE aep.performance_key = vep.performance_key
+          )
     """, conn)
     perf["performance_date"] = pd.to_datetime(perf["performance_date"])
 
@@ -117,6 +127,11 @@ def load_raw(conn):
         JOIN performances p ON p.performance_key = s.performance_key
         WHERE s.role = 'raw_score'
           AND p.class_code IN ('pia','pio','piw','psa','psj','pso','psw')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM analysis_excluded_performances aep
+              WHERE aep.performance_key = s.performance_key
+          )
     """, conn)
 
     # Block-level z-scores for normalization
@@ -319,7 +334,7 @@ def add_competition_relative_features(cohort, expanded):
     non_champ = non_champ.dropna(subset=["subtotal_score"])
 
     event_groups = non_champ.groupby(
-        ["event_id", "class_code", "round"]
+        ["event_id", "class_code", "round"], dropna=False
     )["subtotal_score"]
 
     event_field_size = event_groups.transform("count").rename("_field_size")
@@ -420,6 +435,8 @@ def add_prior_history(cohort):
     cohort["prior_champ_subtotal"] = np.nan
     cohort["n_prior_seasons"] = 0
     cohort["years_since_prior"] = np.nan
+    cohort["prior_class_code"] = "none"
+    cohort["class_change_direction"] = "first_observed_season"
     return cohort
 
 
@@ -444,15 +461,35 @@ def fill_prior_history(cohort):
                 "prior_champ_subtotal": np.nan,
                 "n_prior_seasons": 0,
                 "years_since_prior": np.nan,
+                "prior_class_code": "none",
+                "class_change_direction": "first_observed_season",
             }
         else:
             most_recent = prior.sort_values("season_year").iloc[-1]
+            prior_class = most_recent["class_code"]
+            current_class = row["class_code"]
+            if prior_class == current_class:
+                direction = "same_class"
+            elif (
+                prior_class in CLASS_LEVEL
+                and current_class in CLASS_LEVEL
+                and prior_class[:2] == current_class[:2]
+            ):
+                direction = (
+                    "up"
+                    if CLASS_LEVEL[current_class] > CLASS_LEVEL[prior_class]
+                    else "down"
+                )
+            else:
+                direction = "format_or_division_change"
             prior_rows[row_index] = {
                 "has_prior_history": 1,
                 "prior_champ_percentile": most_recent["championship_percentile"],
                 "prior_champ_subtotal": most_recent["terminal_subtotal_score"],
                 "n_prior_seasons": len(prior),
                 "years_since_prior": row["season_year"] - most_recent["season_year"],
+                "prior_class_code": prior_class,
+                "class_change_direction": direction,
             }
 
     prior_df = pd.DataFrame.from_dict(prior_rows, orient="index")

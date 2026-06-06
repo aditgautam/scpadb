@@ -121,8 +121,13 @@ def classify_season(rows):
         has_decrease = any(current < previous for previous, current in zip(levels, levels[1:]))
         has_increase = any(current > previous for previous, current in zip(levels, levels[1:]))
         if has_decrease:
-            statuses.add("separate_ensembles")
-            reasons.append(f"{format_name} class sequence decreases; demotion is not allowed")
+            if "separate_ensembles" not in statuses:
+                statuses.add("midseason_reclassification")
+                statuses.add("needs_review")
+            reasons.append(
+                f"{format_name} class sequence decreases; review whether this is "
+                "a downward reclassification or evidence of separate ensembles"
+            )
         elif has_increase and "separate_ensembles" not in statuses:
             statuses.add("midseason_promotion")
             statuses.add("needs_review")
@@ -202,6 +207,31 @@ def find_cross_season_candidates(records):
                             lower_last,
                             upper_first,
                             relevant_rows,
+                            "up",
+                        )
+                    )
+                upper_last = max(upper_years)
+                lower_first = min(lower_years)
+                if 0 < lower_first - upper_last <= 4:
+                    relevant_years = {upper_last, lower_first}
+                    relevant_rows = [
+                        row
+                        for row in records
+                        if row["canonical_ensemble_id"] == canonical_id
+                        and row["season_year"] in relevant_years
+                        and row["class_code"] in {lower_code, upper_code}
+                    ]
+                    candidates.append(
+                        (
+                            canonical_id,
+                            names[canonical_id],
+                            format_name,
+                            upper_code,
+                            lower_code,
+                            upper_last,
+                            lower_first,
+                            relevant_rows,
+                            "down",
                         )
                     )
     return candidates
@@ -274,7 +304,8 @@ def main():
         "",
         "- Marching and Concert ensembles never share a track.",
         "- Marching promotion ladders are PIA -> PIO -> PIW and PSA -> PSO -> PSW.",
-        "- A track may promote but may not demote.",
+        "- Cross-season upward or downward reclassification remains one track when "
+        "there is no evidence of multiple ensembles.",
         "- Same-date multi-class records or multiple prelims classes indicate separate ensembles.",
         "- Without evidence of multiple ensembles in a format, class changes remain one continuing track.",
         "- Mid-season promotions remain one historical track but are excluded from primary modeling.",
@@ -306,12 +337,12 @@ def main():
 
     lines.extend(
         [
-            f"## Auto-Connected Cross-Season Promotions ({len(cross_season_candidates)})",
+            f"## Auto-Connected Cross-Season Reclassifications ({len(cross_season_candidates)})",
             "",
             "These programs stop appearing in a lower marching class and begin appearing "
-            "in a higher marching class without evidence of multiple marching ensembles "
+            "in a different marching class without evidence of multiple marching ensembles "
             "in the same season. They are connected automatically under the owner-approved "
-            "continuity rule.",
+            "continuity rule, including both upward and downward moves.",
             "",
         ]
     )
@@ -319,17 +350,18 @@ def main():
         _,
         name,
         _,
-        lower_code,
-        upper_code,
-        lower_year,
-        upper_year,
+        from_code,
+        to_code,
+        from_year,
+        to_year,
         rows,
+        direction,
     ) in cross_season_candidates:
         lines.extend(
             [
-                f"### {name}: {lower_code.upper()} {lower_year} -> {upper_code.upper()} {upper_year}",
+                f"### {name}: {from_code.upper()} {from_year} -> {to_code.upper()} {to_year}",
                 "",
-                "**Status:** `confirmed`, `cross_season_promotion`",
+                f"**Status:** `confirmed`, `cross_season_reclassification`, `{direction}`",
                 "",
                 *render_table(rows),
                 "",
