@@ -1147,7 +1147,7 @@ function buildPromotionLookup(rows) {
     const lookup = new Set();
     rows.forEach(row => {
         splitCsv(row.class_codes).forEach(cls => {
-            lookup.add(`${row.canonical_ensemble_id}|${row.season_year}|${cls}`);
+            lookup.add(`${row.canonical_ensemble_id}|${row.season_year}|${cls.toLowerCase()}`);
         });
     });
     return lookup;

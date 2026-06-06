@@ -1149,7 +1149,7 @@ def _build_ensemble_track_season_flags(conn: sqlite3.Connection) -> None:
             canonical_ensemble_name,
             track_id,
             season_year,
-            group_concat(DISTINCT upper(class_code)) AS class_codes,
+            group_concat(DISTINCT lower(class_code)) AS class_codes,
             count(DISTINCT class_code) AS class_count,
             'midseason_promotion' AS signal
         FROM transitions
