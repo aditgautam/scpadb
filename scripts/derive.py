@@ -61,7 +61,8 @@ class TrackRule:
 @dataclass(frozen=True)
 class JudgeRule:
     judge_abbrev: str
-    judge_full_name: str
+    judge_first_name: str
+    judge_name_override: str
     notes: str
 
 
@@ -147,10 +148,30 @@ def _load_judge_rules(path: Path) -> dict[str, JudgeRule]:
                 continue
             rules[abbrev] = JudgeRule(
                 judge_abbrev=abbrev,
-                judge_full_name=row.get("judge_full_name", "").strip(),
+                judge_first_name=(
+                    row.get("judge_first_name", "")
+                    or row.get("judge_full_name", "")
+                ).strip(),
+                judge_name_override=row.get("judge_name_override", "").strip(),
                 notes=row.get("notes", "").strip(),
             )
     return rules
+
+
+def _judge_last_name(abbrev: str) -> str:
+    parts = abbrev.split()
+    return parts[-1] if len(parts) > 1 else ""
+
+
+def _judge_full_name(abbrev: str, rule: JudgeRule | None) -> str | None:
+    if not rule:
+        return None
+    if rule.judge_name_override:
+        return rule.judge_name_override
+    if not rule.judge_first_name:
+        return None
+    last_name = _judge_last_name(abbrev)
+    return f"{rule.judge_first_name} {last_name}".strip()
 
 
 def _reset_derived_objects(conn: sqlite3.Connection) -> None:
@@ -600,7 +621,7 @@ def _build_judge_lookup(conn: sqlite3.Connection, judge_rules: dict[str, JudgeRu
     for row in observed:
         abbrev = row["judge"]
         rule = judge_rules.get(abbrev)
-        full_name = rule.judge_full_name if rule and rule.judge_full_name else None
+        full_name = _judge_full_name(abbrev, rule)
         notes = rule.notes if rule else ""
         inserts.append((abbrev, full_name, full_name or abbrev, notes))
 

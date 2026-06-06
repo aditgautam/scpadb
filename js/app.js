@@ -1339,7 +1339,15 @@ function renderShowRecords(db) {
 
         if (combine && hasMultipleRounds) {
             const allPerfs = rounds.flatMap(r => byRound[r]);
-            appendShowTables(section, allPerfs, scoreModel, detailed, false, `${season}:${date}:${cls}:combined`);
+            appendShowTables(
+                section,
+                allPerfs,
+                scoreModel,
+                detailed,
+                false,
+                `${season}:${date}:${cls}:combined`,
+                true
+            );
         } else {
             rounds.forEach(round => {
                 if (hasMultipleRounds) {
@@ -1354,16 +1362,32 @@ function renderShowRecords(db) {
     });
 }
 
-function appendShowTables(section, perfs, scoreModel, detailed, showSubtotals, tableKey) {
+function appendShowTables(
+    section,
+    perfs,
+    scoreModel,
+    detailed,
+    showSubtotals,
+    tableKey,
+    combinedRanking = false
+) {
     const groups = detailed
         ? groupPerfsByPanelStructure(perfs, scoreModel)
         : [{ label: '', perfs }];
+    const combinedRanks = combinedRanking ? buildCombinedRanks(perfs) : null;
     groups.forEach((group, index) => {
         if (groups.length > 1) {
             section.appendChild(el('div', 'block-heading', group.label || `Panel ${index + 1}`));
         }
         const columns = getColumnsForPerfs(group.perfs, scoreModel);
-        const wrapped = buildShowTable(group.perfs, scoreModel, columns, showSubtotals, `${tableKey}:${index}`);
+        const wrapped = buildShowTable(
+            group.perfs,
+            scoreModel,
+            columns,
+            showSubtotals,
+            `${tableKey}:${index}`,
+            combinedRanks
+        );
         section.appendChild(wrapped);
         const tbl = wrapped.querySelector('table');
         if (tbl) applyStickyColumns(tbl, 2);
@@ -1438,7 +1462,9 @@ function buildDetailedScoreModel(scoreRows, captionMap, hideJudgeSlots) {
                 caption: row.caption,
                 role: row.role,
                 judgeSlot: row.judge_slot ?? 99,
-                judgeLabel: row.judge || null,
+                judgeLabel: hideJudgeSlots
+                    ? null
+                    : (row.judge_display_name || row.judge || null),
                 subcaption: row.subcaption,
             });
         }
@@ -1478,7 +1504,7 @@ function buildDetailedScoreModel(scoreRows, captionMap, hideJudgeSlots) {
         if (ar !== br) return ar - br;
         return a.subcaption.localeCompare(b.subcaption);
     });
-    return { columns, scores };
+    return { columns, scores, hideJudgeSlots };
 }
 
 function getColumnsForPerfs(perfs, scoreModel) {
@@ -1496,9 +1522,37 @@ function colJudgeGroup(col) {
     return col.judgeSlot;
 }
 
-function buildShowTable(perfs, scoreModel, scoreColumns, showSubtotals, tableKey) {
+function compareCombinedScores(a, b) {
+    const as = a.total_score == null ? Number.NEGATIVE_INFINITY : Number(a.total_score);
+    const bs = b.total_score == null ? Number.NEGATIVE_INFINITY : Number(b.total_score);
+    if (as !== bs) return bs - as;
+
+    const ar = a.total_rank ?? a.placement ?? 9999;
+    const br = b.total_rank ?? b.placement ?? 9999;
+    if (ar !== br) return ar - br;
+    return String(a.canonical_ensemble_name).localeCompare(String(b.canonical_ensemble_name));
+}
+
+function buildCombinedRanks(perfs) {
+    return new Map(
+        [...perfs]
+            .sort(compareCombinedScores)
+            .map((perf, index) => [perf.performance_key, index + 1])
+    );
+}
+
+function buildShowTable(
+    perfs,
+    scoreModel,
+    scoreColumns,
+    showSubtotals,
+    tableKey,
+    combinedRanks = null
+) {
     const useGroups = scoreColumns.length > 0 && scoreColumns[0].caption != null;
-    const useJudgeGroups = useGroups && scoreColumns.some(c => (colJudgeGroup(c) ?? 0) > 1);
+    const useJudgeGroups = useGroups
+        && !scoreModel.hideJudgeSlots
+        && scoreColumns.some(c => (colJudgeGroup(c) ?? 0) > 1);
     const headers = [
         { label: '#', key: 'rank' },
         { label: 'Ensemble', key: 'ensemble' },
@@ -1506,7 +1560,7 @@ function buildShowTable(perfs, scoreModel, scoreColumns, showSubtotals, tableKey
             label: c.label, key: c.key, num: true, sortable: true,
             captionGroup: useGroups ? c.caption : null,
             judgeGroup: useJudgeGroups ? colJudgeGroup(c) : undefined,
-            judgeLabel: useGroups ? (c.judgeLabel || null) : null,
+            judgeLabel: useGroups && !scoreModel.hideJudgeSlots ? (c.judgeLabel || null) : null,
             role: useGroups ? c.role : null,
         })),
     ];
@@ -1516,15 +1570,17 @@ function buildShowTable(perfs, scoreModel, scoreColumns, showSubtotals, tableKey
     }
     headers.push({ label: 'Total', key: 'total', num: true, sortable: true });
 
-    const sorted = [...perfs].sort((a, b) => {
-        const ra = a.total_rank ?? 9999;
-        const rb = b.total_rank ?? 9999;
-        if (ra !== rb) return ra - rb;
-        const pa = a.placement ?? 9999;
-        const pb = b.placement ?? 9999;
-        if (pa !== pb) return pa - pb;
-        return (b.total_score ?? 0) - (a.total_score ?? 0);
-    });
+    const sorted = [...perfs].sort(combinedRanks
+        ? compareCombinedScores
+        : (a, b) => {
+            const ra = a.total_rank ?? 9999;
+            const rb = b.total_rank ?? 9999;
+            if (ra !== rb) return ra - rb;
+            const pa = a.placement ?? 9999;
+            const pb = b.placement ?? 9999;
+            if (pa !== pb) return pa - pb;
+            return (b.total_score ?? 0) - (a.total_score ?? 0);
+        });
 
     const rows = sorted.map((p, defaultOrder) => {
         const scores = scoreModel.scores[p.performance_key] || {};
@@ -1535,7 +1591,7 @@ function buildShowTable(perfs, scoreModel, scoreColumns, showSubtotals, tableKey
         };
         scoreColumns.forEach(c => { sortValues[c.key] = scores[c.key]; });
         const cells = [
-            p.placement ?? p.total_rank ?? '--',
+            combinedRanks?.get(p.performance_key) ?? p.placement ?? p.total_rank ?? '--',
             {
                 html: routeButtonHtml('ensemble', escapeHtml(p.canonical_ensemble_name), {
                     canonicalId: p.canonical_ensemble_id,
