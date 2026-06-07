@@ -1,5 +1,22 @@
-% Target: 150--200 words. Write this last.
-This paper introduces a historical dataset of Southern California Percussion
-Alliance scores and studies whether an ensemble's debut performance predicts
-its relative championship outcome. The final abstract should state the cohort,
-target, models, temporal holdout, headline result, and principal limitation.
+Indoor percussion is a judged music-and-movement activity in which ensembles
+perform designed shows combining percussion music with staged visual movement.
+Adjudicated scores are expected to rise as groups refine these shows across a
+season.
+We study whether an ensemble's debut, its first valid non-championship
+competitive appearance, can predict its terminal championship subtotal, the
+combined caption score (sum of adjudicated scoring dimensions) before timing penalties.
+Using a newly engineered database of 4,441 Southern California Percussion
+Alliance (SCPA) performances spanning nine seasons (2017--2026), we construct
+a cohort of 781 ensemble-seasons, where each observation represents one
+performing ensemble in one season. Each has both a debut and a championship
+result. Models are fit on 574 development observations and
+evaluated on 207 held-out observations from 2025--2026. Against three baselines (global
+median, class-level median, and debut-score identity), we evaluate Ridge
+regression and gradient boosting. Ridge achieves a held-out mean absolute
+error of 2.676 points (RMSE 3.499, $R^2 = 0.769$, Spearman $\rho = 0.892$),
+substantially outperforming all baselines. This result reflects predictability
+within the recorded adjudication system: the model forecasts a later
+adjudicated score from an earlier one and does not measure or explain the
+underlying performance quality, artistry, or season development that produced
+either score. Findings are further limited by championship-selection bias,
+observational judge assignments, and SCPA-only coverage.

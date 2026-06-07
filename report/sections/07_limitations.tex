@@ -1,9 +1,38 @@
 \section{Limitations}
 \label{sec:limitations}
 
-% Address subjective scoring, selection into championships, changing sheets,
-% unequal schedules, missing membership/staff/show-completion variables,
-% pandemic discontinuity, non-random judge assignment, and SCPA-only scope.
-The analysis cannot observe performer membership, staff continuity, rehearsal
-time, budget, repertoire difficulty, or show completion. Its findings are
-predictive associations and should not be interpreted causally.
+The principal limitation of this study is construct validity. The model
+observes adjudicated scores, caption-level score components, timing, class
+membership, competition context, and prior score history. It does not observe
+the performed show itself, nor most factors that shape it: musical or visual
+execution, artistry, instruction quality, performer membership, show design,
+rehearsal time, resource availability, or how fully the show had been
+staged and learned at debut. As a result, the model estimates continuity within the
+adjudication system rather than any feature of the underlying activity. A low
+prediction error means that debut adjudication agrees with championship
+adjudication; it does not mean the model explains why an ensemble improved,
+whether scores accurately reflect artistic quality, or how any ensemble should
+train or be coached. MAE measures agreement with later judges, not accuracy
+against an objective ground truth of performance quality.
+
+Additional limitations include: championship-participant selection bias (only
+ensembles that reached a championship contribute a target); unequal schedules
+and sparse independent-class cells (PIO and PIA have two and six held-out
+observations, respectively); class changes and incomplete knowledge of
+intended class at debut (adjudicators may promote ensembles mid-season);
+debut show completeness (how fully the production has been staged at the time
+of the first performance), which is not recorded and may vary more across
+A-class ensembles than in World class, a plausible partial explanation for
+PSA's wider error distributions that cannot be tested with the available data;
+pandemic discontinuity and uncertain historical sheet revisions; and
+SCPA-only geographic scope, which limits generalizability to other circuits.
+
+Judge assignments in this dataset are observational and cannot be assumed to
+be randomized. Because the same judges work multiple events across a regional season, scores from repeated judge--ensemble pairings are not
+independent. Controlling for confounders would require assignment data not
+available here; exploratory residual screening identified patterns that could
+not be attributed defensibly to individual judges under these constraints, and
+those findings are not presented as results.
+
+Prediction intervals are marginal empirical bands derived from development
+out-of-fold residuals, not calibrated ensemble-specific guarantees.

@@ -1,7 +1,60 @@
 \section{Results}
 \label{sec:results}
 
-% Present the baseline/model table, holdout MAE/RMSE/R2/Spearman results,
-% bootstrap uncertainty, feature ablations, and class-level errors. Discuss the
-% largest errors using only evidence present in the data.
-This section will be generated from the frozen 2025--2026 holdout evaluation.
+\input{tables/tab_holdout_metrics}
+
+Table~\ref{tab:holdout-metrics} reports held-out evaluation metrics for all
+models on the 2025--2026 seasons ($n = 207$). The global-median baseline
+achieves an MAE of 5.858 and an $R^2$ near zero, consistent with constant
+predictions. The class-median baseline substantially improves on it (MAE
+4.767, Spearman $\rho = 0.568$), confirming that class membership carries
+predictive information beyond a global constant. The debut-score identity
+baseline preserves meaningful rank ordering (Spearman $\rho = 0.733$) but
+severely underpredicts terminal scores, with a mean residual of $-11.224$
+points; ensembles improve considerably between debut and championship, so the
+raw debut score is a poor terminal-score forecast.
+
+Ridge regression achieves a held-out MAE of 2.676 (RMSE 3.499, $R^2 = 0.769$,
+Spearman $\rho = 0.892$). Ridge was selected as the headline model by
+development cross-validation MAE (2.769) rather than by post-hoc holdout
+comparison. A cluster bootstrap 95\% confidence interval for the
+difference GBM MAE $-$ Ridge MAE is $[0.056, 0.454]$ (2,000 resamples, clustered by ensemble identity), confirming that Ridge
+outperforms gradient boosting on this evaluation. Gradient boosting's weaker
+held-out performance is consistent with the structure of the task: the ablation
+and Ridge coefficient analysis both indicate that debut subtotal and class
+membership account for most of the predictive signal, leaving little residual
+structure for an ensemble method to exploit. At 574 development observations,
+the added complexity of gradient boosting does not recover additional signal
+over Ridge. An empirical prediction
+interval formed by adding and subtracting the development residual 90th
+percentile (5.795 points) covers 87.9\% of held-out outcomes.
+Figure~\ref{fig:predicted-vs-observed} shows predicted versus observed
+subtotals for the Ridge model.
+
+\input{figures/fig_predicted_vs_observed}
+
+\input{tables/tab_ablation}
+
+Table~\ref{tab:ablation} reports development cross-validation MAE for each
+ablation step. Adding debut timing and class (B) produces the largest
+single-step improvement. Competition context (C) adds further gain; the
+score-profile block (D) does not improve over C at this sample size; prior
+history (E) recovers the gap; and explicit class-change direction (F)
+adds no further improvement. Figure~\ref{fig:ridge-coefficients} shows the 15
+largest Ridge coefficients by absolute magnitude. PIA (the lowest-tier
+independent class) is the regression reference category; this choice scales
+coefficient magnitudes relative to that baseline but does not affect model
+predictions or any reported metric. Debut subtotal and class membership are
+the dominant predictors; prior championship subtotal adds incremental signal.
+
+\input{tables/tab_holdout_by_class}
+
+Table~\ref{tab:holdout-by-class} disaggregates held-out MAE and residuals by
+class. PSA (Scholastic A) has the highest class-level MAE (3.254 across 112
+held-out observations, 54.1\% of the holdout). Its near-zero median residual
+($+0.087$), widest terminal-score (SD 6.764) and residual (SD 4.101)
+distributions, and large errors in both directions indicate heterogeneous
+development rather than systematic overprediction. PSA supplies eight of the
+ten largest positive residuals, partly reflecting its sample size.
+
+\input{figures/fig_ridge_coefficients}

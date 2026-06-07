@@ -1,11 +1,59 @@
 \section{Dataset and Exploratory Analysis}
 \label{sec:dataset}
 
-% Describe collection from CompetitionSuite recaps, raw and derived schemas,
-% canonical ensemble tracks, season coverage, missing years, cohort selection,
-% and class-dependent scoring. Include the cohort table and one compact EDA
-% figure. State all exclusions.
-The project database contains 4,441 performances and 56,910 score records
-covering 2017--2026 except 2021 \cite{scpadb2026}. The final version of this
-section will distinguish raw performances from derived identities, events,
-season weeks, and judge blocks.
+Data were collected from public CompetitionSuite recap pages (a web platform through which judges submit scores at SCPA events) using
+the cs-parse library~\cite{scpadb2026, csparse2026}. The resulting database
+contains 4,441 performance records and 56,910 score records spanning the
+2017--2026 SCPA seasons, excluding 2021, when no season was held. Each
+performance record represents one ensemble's scored appearance at a
+competition. Music, Visual, Music Effect, and Visual Effect are judged
+separately; championship finals may use multiple adjudicators for each caption.
+Ensembles compete within a \emph{class}: a
+competitive division grouping programs by skill level. Independent ensembles
+compete in A (basic concepts and skills), Open (intermediate), or World
+(advanced) classes (coded PIA, PIO, PIW); scholastic ensembles, which are
+school-affiliated programs, compete in parallel scholastic classes (PSA, PSO,
+PSW) or the Junior division for middle-school programs (PSJ, also evaluated on
+basic concepts and skills similar to A class).
+
+Three concert classes (PSCA, PSCO, PSCW) use a stationary, non-marching format. They are excluded because their caption structure omits the marching
+visual framework and is incompatible with the four-caption marching
+sheet~\cite{wgi2026scoresheets}. Sixteen
+all-zero records are retained in the public database for historical
+completeness but excluded from all analysis; thirteen are marching records. The
+seven marching classes contain 3,808 raw performance records and 52,288 score records;
+after removing the thirteen marching artifacts, the clean analysis scope
+contains 3,795 performance records. The 2020 season, curtailed before its
+championship, is included in descriptive analysis only. The 2026 season is
+complete through April 11, 2026.
+
+An \emph{ensemble-season} is one performing ensemble observed across one
+season. Its \emph{debut} is its first valid, non-championship scored appearance
+within that season. The primary modeling target is the terminal
+championship subtotal score (the sum of adjudicated caption scores at the
+furthest championship stage the ensemble reached), excluding timing penalties
+(deductions for timing, logistics, or rule compliance rather than artistic merit)
+and bounded to $[0, 100]$. Championship competition may include prelims,
+semifinals, and finals, so ``terminal'' refers to the latest stage reached. The
+modeling cohort requires each ensemble-season to have both a debut and a
+championship result, and excludes ensembles that
+appeared only at championships (typically visiting groups without a
+regional-season debut). An ensemble-season is also excluded if that same
+ensemble competes in multiple classes during the season, because its terminal
+class is not known at debut. A program may still contribute separate
+ensemble-seasons when it fields distinct ensembles concurrently (for example, a school entering both a Scholastic A and a Scholastic Open ensemble in the same season). After applying
+these rules and a requirement of at least two ensemble-seasons per class-season (needed for the percentile formula denominator), 781 ensemble-seasons remain:
+574 development observations from 2017--2019 and 2022--2024, and 207 held-out
+observations from 2025--2026. Only ensemble-seasons with a championship result
+receive a target, which induces a selection effect the model cannot remove.
+
+Descriptive scores rise strongly within most completed seasons: the median
+subtotal increases from roughly 70--74 points in the first competition week to
+approximately 87--90 points near championships. Terminal championship medians
+also differ substantially by class and year, motivating the use of class,
+timing, and competition-context features rather than treating a debut score as
+directly comparable across all observations.
+Figure~\ref{fig:class-score-trends} shows median terminal championship
+subtotals by class across seasons.
+
+\input{figures/fig_class_score_trends}

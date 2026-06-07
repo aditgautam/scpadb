@@ -1,11 +1,40 @@
 \section{Introduction}
 \label{sec:introduction}
 
-% Explain SCPA, why scores are expected to rise, why judging is subjective, and
-% why an early-season forecast is useful. End with the research question and
-% two or three concrete contributions.
-Competitive indoor percussion combines athletic execution, musical
-performance, and visual design. Its scores are expert judgments rather than
-direct physical measurements, and ensembles are expected to improve as a
-season progresses. This creates a useful forecasting question: how much of a
-group's eventual competitive outcome is already visible at its debut?
+Competitive indoor percussion is a judged music-and-movement activity. An
+ensemble performs a designed show that combines percussion music with staged
+movement and visual composition. Judges evaluate the
+show across scored dimensions, called \emph{captions}: Music and Visual address
+the composition and performance quality, while Music Effect and Visual Effect address
+how successfully the design and performance communicate and sustain an overall
+impact~\cite{wgi2026scoresheets}. These scores are expert adjudications rather
+than objectively measurable outcomes: there is no distance run, time recorded,
+or weight lifted.
+
+Ensembles typically refine, complete, and improve the same show as they progress
+from early-season regional competitions toward championships. This structure
+raises a natural forecasting question: how much of an ensemble's eventual
+championship outcome is already visible at its first competitive appearance?
+
+The Southern California Percussion Alliance (SCPA) organizes a regional
+competition circuit serving Southern California. Each SCPA season runs from
+late winter through spring, culminating in a championship event. We use SCPA
+as a test case for studying the internal consistency of competitive percussion
+adjudication across a season.
+
+We frame the prediction task as a test of \emph{scoring-system
+predictability}: given only an ensemble's debut scores and contextual
+features, how well can a model reproduce the championship subtotal (the
+combined caption score before timing penalties) that expert adjudicators later
+assign? Accurate forecasting implies that debut adjudication is meaningfully
+continuous with championship adjudication; it
+does not imply that debut scores cause later performance, that the scores are
+artistically correct, or that the forecasts should guide consequential
+ensemble decisions.
+
+The contributions of this paper are: (1)~a reproducible historical SCPA
+scoring database built from public CompetitionSuite competition
+records~\cite{scpadb2026, csparse2026}; (2)~a leakage-controlled
+debut-to-championship prediction task with chronological held-out evaluation
+on the 2025--2026 seasons; and (3)~error analysis examining where the scoring
+system is most and least predictable across competitive class divisions.

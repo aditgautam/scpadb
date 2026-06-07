@@ -23,7 +23,10 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 DEV_SEASONS = [2017, 2018, 2019, 2022, 2023, 2024]
 HOLDOUT_SEASONS = [2025, 2026]
 TARGET = "terminal_subtotal_score"
+PERCENTILE_TARGET = "championship_percentile"
 RANDOM_STATE = 42
+SCORE_MIN = 0.0
+SCORE_MAX = 100.0
 
 FEAT_SCORE = ["debut_subtotal_score"]
 FEAT_PENALTY = ["debut_penalty_score"]
@@ -72,13 +75,21 @@ GBM_GRID = [
 
 ABLATIONS = {
     "A: debut score only": (FEAT_SCORE, []),
-    "B: + timing and class": (FEAT_SCORE + FEAT_TIMING, CAT_CLASS),
+    "B: + timing and class": (
+        FEAT_SCORE + FEAT_PENALTY + FEAT_TIMING,
+        CAT_CLASS,
+    ),
     "C: + competition context": (
-        FEAT_SCORE + FEAT_TIMING + FEAT_COMP,
+        FEAT_SCORE + FEAT_PENALTY + FEAT_TIMING + FEAT_COMP,
         CAT_CLASS,
     ),
     "D: + score profile": (
-        FEAT_SCORE + FEAT_TIMING + FEAT_COMP + FEAT_PROFILE_Z + FEAT_PROFILE_MISSING,
+        FEAT_SCORE
+        + FEAT_PENALTY
+        + FEAT_TIMING
+        + FEAT_COMP
+        + FEAT_PROFILE_Z
+        + FEAT_PROFILE_MISSING,
         CAT_CLASS,
     ),
     "E: + prior history": (
@@ -102,6 +113,21 @@ ABLATIONS = {
         CAT_CLASS + CAT_RECLASS,
     ),
 }
+
+
+def clip_scores(values):
+    return np.clip(np.asarray(values, dtype=float), SCORE_MIN, SCORE_MAX)
+
+
+def validate_ablation_contract() -> None:
+    d_numeric, d_categorical = ABLATIONS["D: + score profile"]
+    e_numeric, e_categorical = ABLATIONS["E: + prior history"]
+    if e_categorical != d_categorical:
+        raise AssertionError("Prior-history ablation changes categorical features")
+    if e_numeric != d_numeric + FEAT_PRIOR:
+        raise AssertionError(
+            "Prior-history ablation must add only prior-history variables"
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -190,7 +216,7 @@ def make_pipeline(model, numeric_features, categorical_features) -> Pipeline:
 
 
 def metric_row(label: str, actual, predicted) -> dict[str, float | str]:
-    predicted_array = np.asarray(predicted)
+    predicted_array = clip_scores(predicted)
     rho = (
         np.nan
         if np.unique(predicted_array).size < 2
@@ -198,9 +224,9 @@ def metric_row(label: str, actual, predicted) -> dict[str, float | str]:
     )
     return {
         "model": label,
-        "mae": mean_absolute_error(actual, predicted),
-        "rmse": np.sqrt(mean_squared_error(actual, predicted)),
-        "r2": r2_score(actual, predicted),
+        "mae": mean_absolute_error(actual, predicted_array),
+        "rmse": np.sqrt(mean_squared_error(actual, predicted_array)),
+        "r2": r2_score(actual, predicted_array),
         "spearman_rho": rho,
         "mean_residual": np.mean(predicted_array - np.asarray(actual)),
     }
@@ -214,6 +240,7 @@ def baseline_cv(dev: pd.DataFrame) -> pd.DataFrame:
         class_prediction = (
             validation["debut_class_code"].map(class_medians).fillna(global_median)
         )
+        debut_prediction = clip_scores(validation["debut_subtotal_score"])
         rows.extend(
             [
                 {
@@ -229,8 +256,53 @@ def baseline_cv(dev: pd.DataFrame) -> pd.DataFrame:
                     "validation_season": validation_season,
                     "mae": mean_absolute_error(validation[TARGET], class_prediction),
                 },
+                {
+                    "model": "Debut score identity",
+                    "validation_season": validation_season,
+                    "mae": mean_absolute_error(
+                        validation[TARGET], debut_prediction
+                    ),
+                },
             ]
         )
+    return pd.DataFrame(rows)
+
+
+def percentile_baseline_metrics(
+    dev: pd.DataFrame, holdout: pd.DataFrame
+) -> pd.DataFrame:
+    rows = []
+    for train_seasons, validation_season, _, validation in temporal_folds(dev):
+        row = metric_row(
+            "Debut percentile identity",
+            validation[PERCENTILE_TARGET] * 100,
+            validation["debut_score_percentile"] * 100,
+        )
+        rows.append(
+            {
+                "evaluation": "development_fold",
+                "train_seasons": ",".join(map(str, train_seasons)),
+                "validation_seasons": str(validation_season),
+                "n": len(validation),
+                "mae": row["mae"] / 100,
+                "spearman_rho": row["spearman_rho"],
+            }
+        )
+    holdout_row = metric_row(
+        "Debut percentile identity",
+        holdout[PERCENTILE_TARGET] * 100,
+        holdout["debut_score_percentile"] * 100,
+    )
+    rows.append(
+        {
+            "evaluation": "held_out_test",
+            "train_seasons": "",
+            "validation_seasons": ",".join(map(str, HOLDOUT_SEASONS)),
+            "n": len(holdout),
+            "mae": holdout_row["mae"] / 100,
+            "spearman_rho": holdout_row["spearman_rho"],
+        }
+    )
     return pd.DataFrame(rows)
 
 
@@ -246,7 +318,8 @@ def tune_ridge(dev, numeric_features, categorical_features):
             model.fit(train[columns], train[TARGET])
             fold_maes.append(
                 mean_absolute_error(
-                    validation[TARGET], model.predict(validation[columns])
+                    validation[TARGET],
+                    clip_scores(model.predict(validation[columns])),
                 )
             )
         rows.append({"alpha": alpha, "cv_mae": np.mean(fold_maes)})
@@ -269,7 +342,8 @@ def tune_gbm(dev, numeric_features, categorical_features):
             model.fit(train[columns], train[TARGET])
             fold_maes.append(
                 mean_absolute_error(
-                    validation[TARGET], model.predict(validation[columns])
+                    validation[TARGET],
+                    clip_scores(model.predict(validation[columns])),
                 )
             )
         rows.append({**params, "cv_mae": np.mean(fold_maes)})
@@ -298,7 +372,7 @@ def model_cv(
             model_factory(), numeric_features, categorical_features
         )
         model.fit(train[columns], train[TARGET])
-        predicted = model.predict(validation[columns])
+        predicted = clip_scores(model.predict(validation[columns]))
         row = metric_row(label, validation[TARGET], predicted)
         row.update(
             {
@@ -452,6 +526,7 @@ def main() -> None:
     warnings.filterwarnings(
         "ignore", message="Found unknown categories in columns"
     )
+    validate_ablation_contract()
 
     data = pd.read_csv(data_path)
     dev = data[data["season_year"].isin(DEV_SEASONS)].copy()
@@ -459,6 +534,10 @@ def main() -> None:
 
     baseline_folds = baseline_cv(dev)
     baseline_folds.to_csv(tables_dir / "baseline_cv.csv", index=False)
+    percentile_baselines = percentile_baseline_metrics(dev, holdout)
+    percentile_baselines.to_csv(
+        tables_dir / "percentile_baseline_metrics.csv", index=False
+    )
 
     primary_numeric, primary_categorical = ABLATIONS["E: + prior history"]
     best_alpha, ridge_grid = tune_ridge(
@@ -518,11 +597,20 @@ def main() -> None:
             "terminal_stage",
             "debut_week",
             "has_prior_history",
+            "debut_subtotal_score",
+            "debut_penalty_score",
             TARGET,
         ]
     ].copy()
-    predictions["ridge_prediction"] = ridge_final.predict(holdout[columns])
-    predictions["gbm_prediction"] = gbm_final.predict(holdout[columns])
+    predictions["season_gain"] = (
+        predictions[TARGET] - predictions["debut_subtotal_score"]
+    )
+    predictions["ridge_prediction"] = clip_scores(
+        ridge_final.predict(holdout[columns])
+    )
+    predictions["gbm_prediction"] = clip_scores(
+        gbm_final.predict(holdout[columns])
+    )
     for model in ["ridge", "gbm"]:
         predictions[f"{model}_residual"] = (
             predictions[f"{model}_prediction"] - predictions[TARGET]
@@ -533,9 +621,14 @@ def main() -> None:
 
     global_median = dev[TARGET].median()
     class_medians = dev.groupby("debut_class_code")[TARGET].median()
-    predictions["global_median_prediction"] = global_median
-    predictions["class_median_prediction"] = (
+    predictions["global_median_prediction"] = clip_scores(
+        np.repeat(global_median, len(holdout))
+    )
+    predictions["class_median_prediction"] = clip_scores(
         holdout["debut_class_code"].map(class_medians).fillna(global_median)
+    )
+    predictions["debut_score_prediction"] = clip_scores(
+        holdout["debut_subtotal_score"]
     )
 
     holdout_metrics = pd.DataFrame(
@@ -549,6 +642,11 @@ def main() -> None:
                 "Class median",
                 predictions[TARGET],
                 predictions["class_median_prediction"],
+            ),
+            metric_row(
+                "Debut score identity",
+                predictions[TARGET],
+                predictions["debut_score_prediction"],
             ),
             metric_row(
                 "Ridge",
@@ -570,6 +668,12 @@ def main() -> None:
             n=(TARGET, "size"),
             ridge_mae=("ridge_abs_error", "mean"),
             ridge_bias=("ridge_residual", "mean"),
+            ridge_median_residual=("ridge_residual", "median"),
+            ridge_residual_sd=("ridge_residual", "std"),
+            debut_score_sd=("debut_subtotal_score", "std"),
+            terminal_score_sd=(TARGET, "std"),
+            season_gain_mean=("season_gain", "mean"),
+            season_gain_sd=("season_gain", "std"),
             gbm_mae=("gbm_abs_error", "mean"),
         )
         .reset_index()
@@ -577,8 +681,12 @@ def main() -> None:
     class_metrics.to_csv(tables_dir / "holdout_by_class.csv", index=False)
 
     prediction_band = float(ridge_oof["abs_error"].quantile(0.90))
-    predictions["ridge_lower_90"] = predictions["ridge_prediction"] - prediction_band
-    predictions["ridge_upper_90"] = predictions["ridge_prediction"] + prediction_band
+    predictions["ridge_lower_90"] = clip_scores(
+        predictions["ridge_prediction"] - prediction_band
+    )
+    predictions["ridge_upper_90"] = clip_scores(
+        predictions["ridge_prediction"] + prediction_band
+    )
     coverage = float(
         (
             (predictions[TARGET] >= predictions["ridge_lower_90"])
@@ -592,6 +700,16 @@ def main() -> None:
     predictions.nlargest(10, "ridge_abs_error").to_csv(
         tables_dir / "largest_errors.csv", index=False
     )
+    bounded_columns = [
+        column
+        for column in predictions.columns
+        if column.endswith("_prediction")
+        or column in {"ridge_lower_90", "ridge_upper_90"}
+    ]
+    if not predictions[bounded_columns].apply(
+        lambda column: column.between(SCORE_MIN, SCORE_MAX).all()
+    ).all():
+        raise AssertionError("Exported predictions or intervals exceed 0-100")
 
     names = feature_names(ridge_final, primary_numeric, primary_categorical)
     coefficients = pd.DataFrame(

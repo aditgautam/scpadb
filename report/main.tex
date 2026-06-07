@@ -3,27 +3,35 @@
 \settopmatter{printacmref=false}
 \renewcommand\footnotetextcopyrightpermission[1]{}
 \pagestyle{plain}
+\setlength{\footskip}{13pt}
+\setlength{\emergencystretch}{2em}
 
-\title{From Debut to Championships: Forecasting Competitive Percussion Outcomes}
+\usepackage{booktabs}
+\usepackage{pgfplots}
+\usepackage{pgfplotstable}
+\pgfplotsset{compat=1.18}
 
-\author{Student Name}
+\title{Forecasting Competitive Percussion Scores Based on Debut Performance}
+
+\author{Adit Gautam}
 \affiliation{%
   \institution{University of California San Diego}
   \city{La Jolla}
   \state{California}
   \country{USA}
 }
-\email{student@ucsd.edu}
+\email{a2gautam@ucsd.edu}
 
 \begin{abstract}
 \input{sections/00_abstract}
 \end{abstract}
 
-\keywords{competitive percussion, performance forecasting, judged competition,
-longitudinal data, regression}
+\keywords{competitive percussion, marching band, performance forecasting,
+judged competition, longitudinal data, regression, scoring systems}
 
 \begin{document}
 \maketitle
+\raggedbottom
 
 \input{sections/01_introduction}
 \input{sections/02_related_work}
@@ -35,6 +43,7 @@ longitudinal data, regression}
 \input{sections/08_conclusion}
 
 \bibliographystyle{ACM-Reference-Format}
+\small
 \bibliography{references}
 
 \end{document}
