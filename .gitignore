@@ -6,8 +6,9 @@ __pycache__/
 __marimo__/
 .DS_Store
 .claude/
+.agents/
+skills-lock.json
 docs/
-/PRD.md
 data/full_sample_data.json
 analysis/data/*
 !analysis/data/.gitkeep
@@ -19,15 +20,7 @@ analysis/outputs/figures/*
 analysis/outputs/tables/*
 !analysis/outputs/tables/.gitkeep
 
-# LaTeX build products; report/main.pdf is retained for optional web publishing.
-report/*.aux
-report/*.bbl
-report/*.blg
-report/*.fdb_latexmk
-report/*.fls
-report/*.log
-report/*.out
-report/*.synctex.gz
-report/*.toc
+# Report (LaTeX project + compiled PDF) is submitted separately; not part of the reproducible repo.
+report/
 
 # scores.db is intentionally NOT gitignored
